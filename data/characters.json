@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "description": "可选角色。perk.kind 由 src/game/player.py 的 perk 计算函数统一解释。",
+  "characters": [
+    {
+      "id": "char_ajin",
+      "name_cn": "阿金",
+      "name_en": "Ajin",
+      "theme_color": "#F1C40F",
+      "title": "小老板",
+      "bio": "从夜市摊位起家，开口闭口都是利润率，但确实攒下了本钱。",
+      "perk": {"kind": "start_money_bonus", "value": 1500, "desc": "起始资金 +1500"}
+    },
+    {
+      "id": "char_xiaoman",
+      "name_cn": "小满",
+      "name_en": "Xiaoman",
+      "theme_color": "#2ECC71",
+      "title": "快递骑手",
+      "bio": "城市每条路都熟得很，跑一圈回来总比别人多挣一点。",
+      "perk": {"kind": "pass_start_bonus", "value": 600, "desc": "每次经过起点额外 +600"}
+    },
+    {
+      "id": "char_laochen",
+      "name_cn": "老陈",
+      "name_en": "Lao Chen",
+      "theme_color": "#3498DB",
+      "title": "二手房东",
+      "bio": "买卖房子三十年，砍价是他最擅长的运动。",
+      "perk": {"kind": "buy_discount", "value": 0.08, "desc": "购买地产价格 -8%"}
+    },
+    {
+      "id": "char_nana",
+      "name_cn": "娜娜",
+      "name_en": "Nana",
+      "theme_color": "#E84393",
+      "title": "网红主播",
+      "bio": "镜头一开，租客就不好意思拖欠了。",
+      "perk": {"kind": "rent_income_bonus", "value": 0.12, "desc": "收取租金 +12%"}
+    },
+    {
+      "id": "char_tiedan",
+      "name_cn": "铁蛋",
+      "name_en": "Tiedan",
+      "theme_color": "#E67E22",
+      "title": "装修队长",
+      "bio": "什么场面都见过，看守所也进过几回，出来一样干活。",
+      "perk": {"kind": "jail_fee_discount", "value": 0.5, "desc": "保释金 -50%"}
+    },
+    {
+      "id": "char_drbo",
+      "name_cn": "博楚",
+      "name_en": "Dr. Bo",
+      "theme_color": "#9B59B6",
+      "title": "大学讲师",
+      "bio": "擅长把每次意外都变成一次课题经费申请。",
+      "perk": {"kind": "event_gain_bonus", "value": 0.2, "desc": "机遇事件的收益 +20%"}
+    },
+    {
+      "id": "char_afei",
+      "name_cn": "阿飞",
+      "name_en": "Afei",
+      "theme_color": "#1ABC9C",
+      "title": "工地工头",
+      "bio": "手底下有一支队伍，盖楼比谁都快，也更便宜。",
+      "perk": {"kind": "upgrade_discount", "value": 0.1, "desc": "地产升级费用 -10%"}
+    },
+    {
+      "id": "char_panghu",
+      "name_cn": "胖虎",
+      "name_en": "Panghu",
+      "theme_color": "#E74C3C",
+      "title": "烧烤摊主",
+      "bio": "人缘好到房东都不好意思多收他钱。",
+      "perk": {"kind": "rent_payment_discount", "value": 0.1, "desc": "支付租金 -10%"}
+    }
+  ],
+  "player_palette": [
+    {"id": "red", "name": "红队", "color": "#E74C3C"},
+    {"id": "blue", "name": "蓝队", "color": "#3498DB"},
+    {"id": "green", "name": "绿队", "color": "#2ECC71"},
+    {"id": "amber", "name": "黄队", "color": "#F1C40F"},
+    {"id": "purple", "name": "紫队", "color": "#9B59B6"},
+    {"id": "orange", "name": "橙队", "color": "#E67E22"}
+  ]
+}

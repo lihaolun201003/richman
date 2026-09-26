@@ -1,0 +1,476 @@
+{
+  "id": "city_default",
+  "name": "城市之光",
+  "tile_count": 36,
+  "description": "36 格城市主题环形棋盘（10×8 网格）",
+  "tiles": [
+    {
+      "id": 0,
+      "index": 0,
+      "type": "START",
+      "name": "城市广场",
+      "district": null,
+      "side": "corner_bl",
+      "slot": 0,
+      "metadata": {
+        "note": "经过或停留可领取通行奖励",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 1,
+      "index": 1,
+      "type": "PROPERTY",
+      "name": "晨曦社区",
+      "district": "东城片区",
+      "side": "bottom",
+      "slot": 1,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 2,
+      "index": 2,
+      "type": "PROPERTY",
+      "name": "晨光苑",
+      "district": "东城片区",
+      "side": "bottom",
+      "slot": 2,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 3,
+      "index": 3,
+      "type": "CHANCE",
+      "name": "机遇路口",
+      "district": null,
+      "side": "bottom",
+      "slot": 3,
+      "metadata": {
+        "note": "抽取一张机遇卡",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 4,
+      "index": 4,
+      "type": "PROPERTY",
+      "name": "星河商街",
+      "district": "星河商圈",
+      "side": "bottom",
+      "slot": 4,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 5,
+      "index": 5,
+      "type": "PROPERTY",
+      "name": "星港百货",
+      "district": "星河商圈",
+      "side": "bottom",
+      "slot": 5,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 6,
+      "index": 6,
+      "type": "TAX",
+      "name": "城市营业税",
+      "district": null,
+      "side": "bottom",
+      "slot": 6,
+      "metadata": {
+        "note": "缴纳固定税款",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 7,
+      "index": 7,
+      "type": "PROPERTY",
+      "name": "云港码头",
+      "district": "云港湾区",
+      "side": "bottom",
+      "slot": 7,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 8,
+      "index": 8,
+      "type": "PROPERTY",
+      "name": "云帆中心",
+      "district": "云港湾区",
+      "side": "bottom",
+      "slot": 8,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 9,
+      "index": 9,
+      "type": "CHANCE",
+      "name": "机遇路口",
+      "district": null,
+      "side": "bottom",
+      "slot": 9,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 10,
+      "index": 10,
+      "type": "JAIL",
+      "name": "看守所",
+      "district": null,
+      "side": "corner_br",
+      "slot": 0,
+      "metadata": {
+        "note": "路过无事，被关押则停留于此",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 11,
+      "index": 11,
+      "type": "PROPERTY",
+      "name": "科技新城",
+      "district": "高新园区",
+      "side": "right",
+      "slot": 1,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 12,
+      "index": 12,
+      "type": "PROPERTY",
+      "name": "创客大厦",
+      "district": "高新园区",
+      "side": "right",
+      "slot": 2,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 13,
+      "index": 13,
+      "type": "CHANCE",
+      "name": "机遇路口",
+      "district": null,
+      "side": "right",
+      "slot": 3,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 14,
+      "index": 14,
+      "type": "PROPERTY",
+      "name": "湖畔花园",
+      "district": "湖景片区",
+      "side": "right",
+      "slot": 4,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 15,
+      "index": 15,
+      "type": "PROPERTY",
+      "name": "湖滨大道",
+      "district": "湖景片区",
+      "side": "right",
+      "slot": 5,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 16,
+      "index": 16,
+      "type": "STATION",
+      "name": "中央车站",
+      "district": "交通枢纽",
+      "side": "right",
+      "slot": 6,
+      "metadata": {
+        "note": "高级地产，租金成长更快",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 17,
+      "index": 17,
+      "type": "PROPERTY",
+      "name": "创意园区",
+      "district": "文创街区",
+      "side": "right",
+      "slot": 7,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 18,
+      "index": 18,
+      "type": "PARK",
+      "name": "中央公园",
+      "district": null,
+      "side": "corner_tr",
+      "slot": 0,
+      "metadata": {
+        "note": "停留可领取奖金池全部奖金",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 19,
+      "index": 19,
+      "type": "BONUS",
+      "name": "城市奖金池",
+      "district": null,
+      "side": "top",
+      "slot": 1,
+      "metadata": {
+        "note": "领取奖金池中的累积奖金",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 20,
+      "index": 20,
+      "type": "PROPERTY",
+      "name": "艺术街区",
+      "district": "文创街区",
+      "side": "top",
+      "slot": 2,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 21,
+      "index": 21,
+      "type": "PROPERTY",
+      "name": "金融中心",
+      "district": "金融区",
+      "side": "top",
+      "slot": 3,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 22,
+      "index": 22,
+      "type": "PROPERTY",
+      "name": "银行大厦",
+      "district": "金融区",
+      "side": "top",
+      "slot": 4,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 23,
+      "index": 23,
+      "type": "CHANCE",
+      "name": "机遇路口",
+      "district": null,
+      "side": "top",
+      "slot": 5,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 24,
+      "index": 24,
+      "type": "PROPERTY",
+      "name": "未来广场",
+      "district": "未来城",
+      "side": "top",
+      "slot": 6,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 25,
+      "index": 25,
+      "type": "PROPERTY",
+      "name": "未来科技馆",
+      "district": "未来城",
+      "side": "top",
+      "slot": 7,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 26,
+      "index": 26,
+      "type": "TAX",
+      "name": "奢侈消费税",
+      "district": null,
+      "side": "top",
+      "slot": 8,
+      "metadata": {
+        "note": "按资产比例征税",
+        "tax_kind": "asset"
+      }
+    },
+    {
+      "id": 27,
+      "index": 27,
+      "type": "PROPERTY",
+      "name": "大学城",
+      "district": "学区",
+      "side": "top",
+      "slot": 9,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 28,
+      "index": 28,
+      "type": "GO_TO_JAIL",
+      "name": "治安巡查",
+      "district": null,
+      "side": "corner_tl",
+      "slot": 0,
+      "metadata": {
+        "note": "被送入看守所",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 29,
+      "index": 29,
+      "type": "PROPERTY",
+      "name": "实验中学",
+      "district": "学区",
+      "side": "left",
+      "slot": 1,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 30,
+      "index": 30,
+      "type": "PROPERTY",
+      "name": "海岸新城",
+      "district": "滨海新区",
+      "side": "left",
+      "slot": 2,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 31,
+      "index": 31,
+      "type": "PROPERTY",
+      "name": "海岸度假村",
+      "district": "滨海新区",
+      "side": "left",
+      "slot": 3,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 32,
+      "index": 32,
+      "type": "STATION",
+      "name": "国际机场",
+      "district": "交通枢纽",
+      "side": "left",
+      "slot": 4,
+      "metadata": {
+        "note": "高级地产，租金成长更快",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 33,
+      "index": 33,
+      "type": "CHANCE",
+      "name": "机遇路口",
+      "district": null,
+      "side": "left",
+      "slot": 5,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 34,
+      "index": 34,
+      "type": "PROPERTY",
+      "name": "山景社区",
+      "district": null,
+      "side": "left",
+      "slot": 6,
+      "metadata": {
+        "note": "独立地产，不参与分区垄断",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 35,
+      "index": 35,
+      "type": "PROPERTY",
+      "name": "未来港塔",
+      "district": "未来城",
+      "side": "left",
+      "slot": 7,
+      "metadata": {
+        "note": "全城地标，最昂贵的地产",
+        "tax_kind": "fixed"
+      }
+    }
+  ]
+}

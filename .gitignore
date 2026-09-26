@@ -1,0 +1,31 @@
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.pyc
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# 日志与临时文件
+logs/
+*.log
+*.tmp
+tmp/
+.vscode/
+.idea/
+
+# 用户本地设置（每台机器不同，不提交）
+config/user_settings.json
+
+# 存档属于本机运行产物
+saves/*.json
+!saves/.gitkeep
+
+# 自动生成的校验截图（报告里的关键几张单独保留，其余忽略）
+docs/reports/shots/06b_wait_roll_*.png
+docs/reports/shots/06c_modal_*.png

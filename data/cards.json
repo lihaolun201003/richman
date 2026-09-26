@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "description": "道具卡注册表。timing 表示可使用时机：own_turn 表示自己回合的掷骰前/决策窗口。",
+  "cards": [
+    {
+      "id": "card_free_rent",
+      "name": "免租卡",
+      "description": "获得一次免租效果，下一次需要支付租金时完全免除。",
+      "rarity": "common",
+      "icon": "shield",
+      "timing": "own_turn",
+      "needs_target": null,
+      "effect": {"kind": "status", "status": "free_rent", "duration": 1},
+      "ai_weight": 0.75
+    },
+    {
+      "id": "card_double_rent",
+      "name": "双倍租金卡",
+      "description": "下一次向他人收取租金时，租金翻倍。",
+      "rarity": "common",
+      "icon": "coin",
+      "timing": "own_turn",
+      "needs_target": null,
+      "effect": {"kind": "status", "status": "rent_double_once", "duration": 1},
+      "ai_weight": 0.7
+    },
+    {
+      "id": "card_teleport",
+      "name": "传送卡",
+      "description": "立即把自己传送到棋盘上的任意一格。",
+      "rarity": "rare",
+      "icon": "portal",
+      "timing": "own_turn",
+      "needs_target": "tile",
+      "effect": {"kind": "teleport"},
+      "ai_weight": 0.6
+    },
+    {
+      "id": "card_swap",
+      "name": "交换位置卡",
+      "description": "与指定的一名玩家交换棋子位置。",
+      "rarity": "uncommon",
+      "icon": "swap",
+      "timing": "own_turn",
+      "needs_target": "player",
+      "effect": {"kind": "swap_position"},
+      "ai_weight": 0.5
+    },
+    {
+      "id": "card_rob",
+      "name": "抢夺卡",
+      "description": "从指定玩家手中抢走一笔现金。",
+      "rarity": "uncommon",
+      "icon": "hand",
+      "timing": "own_turn",
+      "needs_target": "player",
+      "effect": {"kind": "steal", "amount": 900},
+      "ai_weight": 0.65
+    },
+    {
+      "id": "card_shield",
+      "name": "保护卡",
+      "description": "三回合内免疫其他玩家的卡牌效果与抢夺。",
+      "rarity": "uncommon",
+      "icon": "guard",
+      "timing": "own_turn",
+      "needs_target": null,
+      "effect": {"kind": "status", "status": "protected", "duration": 3},
+      "ai_weight": 0.55
+    },
+    {
+      "id": "card_stay",
+      "name": "停留卡",
+      "description": "指定一名对手，其下一回合掷骰后被强制停留一次。",
+      "rarity": "uncommon",
+      "icon": "anchor",
+      "timing": "own_turn",
+      "needs_target": "player",
+      "effect": {"kind": "apply_status_to_target", "status": "skip_turn", "duration": 1},
+      "ai_weight": 0.6
+    },
+    {
+      "id": "card_fixed_dice",
+      "name": "指定骰子卡",
+      "description": "指定下一次自己掷出的骰子总点数。",
+      "rarity": "rare",
+      "icon": "dice",
+      "timing": "own_turn",
+      "needs_target": "dice_value",
+      "effect": {"kind": "status", "status": "fixed_dice", "duration": 1},
+      "ai_weight": 0.5
+    },
+    {
+      "id": "card_barrier",
+      "name": "路障卡",
+      "description": "在指定格放置路障，任何经过的玩家都会被迫停下。",
+      "rarity": "uncommon",
+      "icon": "cone",
+      "timing": "own_turn",
+      "needs_target": "tile",
+      "effect": {"kind": "place_barrier", "duration": 4},
+      "ai_weight": 0.45
+    },
+    {
+      "id": "card_free_upgrade",
+      "name": "免费升级卡",
+      "description": "免费把一处自己的地产提升一级。",
+      "rarity": "uncommon",
+      "icon": "hammer",
+      "timing": "own_turn",
+      "needs_target": "own_property",
+      "effect": {"kind": "free_upgrade"},
+      "ai_weight": 0.8
+    },
+    {
+      "id": "card_discount",
+      "name": "折扣购地卡",
+      "description": "获得一次半价购地的机会。",
+      "rarity": "uncommon",
+      "icon": "tag",
+      "timing": "own_turn",
+      "needs_target": null,
+      "effect": {"kind": "status", "status": "purchase_discount", "duration": 1, "payload": {"percent": 50}},
+      "ai_weight": 0.7
+    },
+    {
+      "id": "card_cash",
+      "name": "现金卡",
+      "description": "立刻从银行取出应急现金。",
+      "rarity": "common",
+      "icon": "cash",
+      "timing": "own_turn",
+      "needs_target": null,
+      "effect": {"kind": "gain_money", "amount": 1500},
+      "ai_weight": 0.85
+    }
+  ]
+}

@@ -1,0 +1,219 @@
+"""用户设置：读写 config/user_settings.json。
+
+默认值来自 config/default.json；用户改动只写 user_settings.json，
+这样升级游戏时不会覆盖用户的个人偏好。
+"""
+from __future__ import annotations
+
+import copy
+import json
+import os
+from typing import Any
+
+from ..utils.logging_setup import get_logger
+from ..utils.paths import config_path
+
+log = get_logger(__name__)
+
+USER_SETTINGS_FILE = "user_settings.json"
+
+#: 动画速度可选项
+ANIM_SPEED_CHOICES = [("0.5x", 0.5), ("1.0x", 1.0), ("1.5x", 1.5), ("2.0x", 2.0)]
+#: 字体大小档位
+FONT_SCALE_CHOICES = [("小", 0.9), ("默认", 1.0), ("大", 1.15)]
+
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "display": {
+        "width": 1600,
+        "height": 900,
+        "fullscreen": False,
+        "vsync": True,
+    },
+    "audio": {
+        "master_volume": 0.7,
+        "bgm_volume": 0.45,
+        "sfx_volume": 0.8,
+        "muted": False,
+    },
+    "ui": {
+        "animation_speed": 1.0,
+        "font_scale": 1.0,
+        "debug_overlay": False,
+        "show_tooltips": True,
+    },
+    "player": {
+        "nickname": "玩家",
+        "character_id": "char_ajin",
+        "color_id": "",
+    },
+    "network": {
+        "last_host": "127.0.0.1",
+        "last_port": 28080,
+        "last_room_name": "",
+    },
+}
+
+#: 允许选择的分辨率
+RESOLUTION_CHOICES = [(1280, 720), (1440, 810), (1600, 900), (1920, 1080)]
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """把 override 合并进 base 的副本，逐层覆盖。"""
+    out = copy.deepcopy(base)
+    for key, value in (override or {}).items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+class Settings:
+    """用户设置对象。"""
+
+    def __init__(self, data: dict[str, Any] | None = None, path: str | None = None) -> None:
+        self.path = path or config_path(USER_SETTINGS_FILE)
+        self.data = _deep_merge(DEFAULT_SETTINGS, data or {})
+        self.loaded_from_disk = False
+
+    # ------------------------------------------------------------ 读写
+    @classmethod
+    def load(cls, path: str | None = None) -> "Settings":
+        target = path or config_path(USER_SETTINGS_FILE)
+        data: dict[str, Any] = {}
+        if os.path.isfile(target):
+            try:
+                with open(target, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except (OSError, json.JSONDecodeError) as exc:
+                log.warning("用户设置读取失败，改用默认值：%s", exc)
+                data = {}
+        else:
+            # 首次运行：尝试合并 config/default.json 里的 ui/audio 段
+            default_file = config_path("default.json")
+            if os.path.isfile(default_file):
+                try:
+                    with open(default_file, "r", encoding="utf-8") as f:
+                        doc = json.load(f)
+                    for key in ("display", "audio", "ui"):
+                        if key in doc:
+                            data.setdefault(key, doc[key])
+                except (OSError, json.JSONDecodeError):
+                    pass
+        st = cls(data, target)
+        st.loaded_from_disk = os.path.isfile(target)
+        return st
+
+    def save(self) -> bool:
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(self.path)), exist_ok=True)
+            tmp = self.path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, self.path)
+            return True
+        except OSError as exc:
+            log.warning("保存用户设置失败：%s", exc)
+            return False
+
+    # ------------------------------------------------------------ 访问
+    def get(self, section: str, key: str, default: Any = None) -> Any:
+        return (self.data.get(section) or {}).get(key, default)
+
+    def set(self, section: str, key: str, value: Any) -> None:
+        self.data.setdefault(section, {})[key] = value
+
+    # ---- 显示
+    @property
+    def width(self) -> int:
+        return int(self.get("display", "width", 1600))
+
+    @property
+    def height(self) -> int:
+        return int(self.get("display", "height", 900))
+
+    @property
+    def fullscreen(self) -> bool:
+        return bool(self.get("display", "fullscreen", False))
+
+    def set_resolution(self, width: int, height: int) -> None:
+        self.set("display", "width", int(width))
+        self.set("display", "height", int(height))
+
+    def set_fullscreen(self, value: bool) -> None:
+        self.set("display", "fullscreen", bool(value))
+
+    # ---- 音频
+    @property
+    def master_volume(self) -> float:
+        return float(self.get("audio", "master_volume", 0.7))
+
+    @property
+    def bgm_volume(self) -> float:
+        return float(self.get("audio", "bgm_volume", 0.45))
+
+    @property
+    def sfx_volume(self) -> float:
+        return float(self.get("audio", "sfx_volume", 0.8))
+
+    @property
+    def muted(self) -> bool:
+        return bool(self.get("audio", "muted", False))
+
+    # ---- UI
+    @property
+    def animation_speed(self) -> float:
+        return float(self.get("ui", "animation_speed", 1.0))
+
+    @property
+    def font_scale(self) -> float:
+        return float(self.get("ui", "font_scale", 1.0))
+
+    @property
+    def debug_overlay(self) -> bool:
+        return bool(self.get("ui", "debug_overlay", False))
+
+    @property
+    def show_tooltips(self) -> bool:
+        return bool(self.get("ui", "show_tooltips", True))
+
+    # ---- 玩家
+    @property
+    def nickname(self) -> str:
+        return str(self.get("player", "nickname", "玩家")) or "玩家"
+
+    @property
+    def character_id(self) -> str:
+        return str(self.get("player", "character_id", "char_ajin"))
+
+    @property
+    def color_id(self) -> str:
+        return str(self.get("player", "color_id", ""))
+
+    def set_nickname(self, name: str) -> None:
+        self.set("player", "nickname", (name or "玩家")[:12])
+
+    def set_character(self, character_id: str, color_id: str = "") -> None:
+        self.set("player", "character_id", character_id)
+        if color_id:
+            self.set("player", "color_id", color_id)
+
+    # ---- 网络
+    @property
+    def last_host(self) -> str:
+        return str(self.get("network", "last_host", "127.0.0.1"))
+
+    @property
+    def last_port(self) -> int:
+        return int(self.get("network", "last_port", 28080))
+
+    @property
+    def last_room_name(self) -> str:
+        return str(self.get("network", "last_room_name", ""))
+
+    def remember_server(self, host: str, port: int) -> None:
+        self.set("network", "last_host", host)
+        self.set("network", "last_port", int(port))
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<Settings {self.width}x{self.height} speed={self.animation_speed}>"

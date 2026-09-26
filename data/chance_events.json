@@ -1,0 +1,302 @@
+{
+  "version": 1,
+  "description": "机遇事件注册表。effect.kind 由 src/game/chance.py 中的效果处理器统一执行。",
+  "cards": [
+    {
+      "id": "exp_lucky_coin",
+      "name": "幸运硬币",
+      "description": "在广场喷泉里捡到一枚古币，卖了个好价钱。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "gain_money", "amount": 600}
+    },
+    {
+      "id": "exp_stock_rise",
+      "name": "股票大涨",
+      "description": "你持有的一支小盘股突然被并购。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "gain_money", "amount": 1200}
+    },
+    {
+      "id": "exp_quarter_bonus",
+      "name": "季度奖金",
+      "description": "公司业绩超预期，全员发奖金。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "gain_money", "amount": 1800}
+    },
+    {
+      "id": "exp_lottery",
+      "name": "彩票中奖",
+      "description": "随手买的彩票中了二等奖。",
+      "rarity": "rare",
+      "target_type": "self",
+      "effect": {"kind": "gain_money", "amount": 3500}
+    },
+    {
+      "id": "exp_city_festival",
+      "name": "城市庆典",
+      "description": "市政庆典给每位市民派发红包。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "gain_money", "amount": 1000}
+    },
+    {
+      "id": "exp_traffic_fine",
+      "name": "违章罚单",
+      "description": "在禁停区停了五分钟。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "lose_money", "amount": 500}
+    },
+    {
+      "id": "exp_house_repair",
+      "name": "房屋维修",
+      "description": "老房子的水管爆了，必须马上修。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "lose_money", "amount": 800}
+    },
+    {
+      "id": "exp_medical",
+      "name": "医疗支出",
+      "description": "急性肠胃炎住院三天。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "lose_money", "amount": 1200}
+    },
+    {
+      "id": "exp_invest_fail",
+      "name": "投资失败",
+      "description": "合伙人带着钱跑了。",
+      "rarity": "rare",
+      "target_type": "self",
+      "effect": {"kind": "lose_money", "amount": 2200}
+    },
+    {
+      "id": "exp_market_crash",
+      "name": "市场波动",
+      "description": "持有的资产按比例缩水。",
+      "rarity": "uncommon",
+      "target_type": "self",
+      "effect": {"kind": "lose_money_percent", "percent": 0.06}
+    },
+    {
+      "id": "exp_move_forward_3",
+      "name": "顺风快车",
+      "description": "搭上顺风车，前进 3 格。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "move_forward", "steps": 3}
+    },
+    {
+      "id": "exp_move_forward_5",
+      "name": "城市快线",
+      "description": "地铁临时提速，前进 5 格。",
+      "rarity": "uncommon",
+      "target_type": "self",
+      "effect": {"kind": "move_forward", "steps": 5}
+    },
+    {
+      "id": "exp_move_backward_3",
+      "name": "迷路绕行",
+      "description": "走错了方向，后退 3 格。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "move_backward", "steps": 3}
+    },
+    {
+      "id": "exp_back_to_start",
+      "name": "高速返程",
+      "description": "被公司紧急召回城市广场。",
+      "rarity": "uncommon",
+      "target_type": "self",
+      "effect": {"kind": "move_to_start"}
+    },
+    {
+      "id": "exp_teleport",
+      "name": "随机传送",
+      "description": "一台失控的实验传送机启动了。",
+      "rarity": "uncommon",
+      "target_type": "self",
+      "effect": {"kind": "teleport_random"}
+    },
+    {
+      "id": "exp_share_dividend",
+      "name": "分红派息",
+      "description": "你参股的项目向所有合伙人派息。",
+      "rarity": "uncommon",
+      "target_type": "all_others",
+      "effect": {"kind": "collect_from_all", "amount": 350}
+    },
+    {
+      "id": "exp_charity",
+      "name": "慈善捐款",
+      "description": "被镜头拍到了，只好给每人发红包。",
+      "rarity": "common",
+      "target_type": "all_others",
+      "effect": {"kind": "pay_all", "amount": 300}
+    },
+    {
+      "id": "exp_rent_half",
+      "name": "谈判高手",
+      "description": "你和房东谈成了折扣，下次付租减半。",
+      "rarity": "uncommon",
+      "target_type": "self",
+      "effect": {"kind": "status", "status": "rent_discount_once", "duration": 1}
+    },
+    {
+      "id": "exp_rent_double",
+      "name": "商业旺季",
+      "description": "客流暴涨，下次收租翻倍。",
+      "rarity": "uncommon",
+      "target_type": "self",
+      "effect": {"kind": "status", "status": "rent_double_once", "duration": 1}
+    },
+    {
+      "id": "exp_free_rent",
+      "name": "免租通行证",
+      "description": "一张盖了章的特批文件，可以免除一次租金。",
+      "rarity": "uncommon",
+      "target_type": "self",
+      "effect": {"kind": "status", "status": "free_rent", "duration": 1}
+    },
+    {
+      "id": "exp_free_upgrade",
+      "name": "免费改造",
+      "description": "政府补贴让你免费升级一处地产。",
+      "rarity": "rare",
+      "target_type": "self",
+      "effect": {"kind": "free_upgrade"}
+    },
+    {
+      "id": "exp_debt_collect",
+      "name": "债务催收",
+      "description": "指定一位对手偿还欠你的旧账。",
+      "rarity": "uncommon",
+      "target_type": "chosen_other",
+      "effect": {"kind": "demand_from_player", "amount": 900}
+    },
+    {
+      "id": "exp_discount_coupon",
+      "name": "购房折扣券",
+      "description": "得到一张购房折扣券，下次购地打七折。",
+      "rarity": "uncommon",
+      "target_type": "self",
+      "effect": {"kind": "status", "status": "purchase_discount", "duration": 1, "payload": {"percent": 30}}
+    },
+    {
+      "id": "exp_upgrade_discount",
+      "name": "装修优惠",
+      "description": "装修公司搞活动，下次升级便宜四成。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "status", "status": "upgrade_discount", "duration": 1, "payload": {"percent": 40}}
+    },
+    {
+      "id": "exp_go_jail",
+      "name": "治安拘留",
+      "description": "夜跑没带身份证，被请去看守所。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "go_to_jail"}
+    },
+    {
+      "id": "exp_roll_again",
+      "name": "连击机会",
+      "description": "状态火热，立即再掷一次骰子。",
+      "rarity": "uncommon",
+      "target_type": "self",
+      "effect": {"kind": "roll_again"}
+    },
+    {
+      "id": "exp_skip_turn",
+      "name": "临时停工",
+      "description": "被拉去开紧急会议，暂停一回合。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "status", "status": "skip_turn", "duration": 1}
+    },
+    {
+      "id": "exp_mystery_parcel",
+      "name": "神秘快递",
+      "description": "收到一个没有寄件人的包裹，里面是一张道具卡。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "gain_card", "random": true}
+    },
+    {
+      "id": "exp_security_contract",
+      "name": "安保合同",
+      "description": "签下一份安保合同，三回合内受到保护。",
+      "rarity": "uncommon",
+      "target_type": "self",
+      "effect": {"kind": "status", "status": "protected", "duration": 3}
+    },
+    {
+      "id": "exp_pickpocket",
+      "name": "小偷光顾",
+      "description": "背包被划开，丢了一张道具卡。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "lose_card"}
+    },
+    {
+      "id": "exp_lucky_dice",
+      "name": "幸运骰子",
+      "description": "得到一颗灌了铅的骰子，下次掷骰必为 6。",
+      "rarity": "uncommon",
+      "target_type": "self",
+      "effect": {"kind": "status", "status": "fixed_dice", "duration": 1, "payload": {"value": 6}}
+    },
+    {
+      "id": "exp_pool_gain",
+      "name": "领取奖金池",
+      "description": "所有未领取的城市奖金都归你了。",
+      "rarity": "uncommon",
+      "target_type": "self",
+      "effect": {"kind": "bonus_pool_gain"}
+    },
+    {
+      "id": "exp_pool_pay",
+      "name": "市政摊派",
+      "description": "被摊派了一笔城市建设费，注入奖金池。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "pay_bonus_pool", "amount": 700}
+    },
+    {
+      "id": "exp_pool_all",
+      "name": "全城建设费",
+      "description": "所有人共同为城市奖金池出资。",
+      "rarity": "common",
+      "target_type": "all_players",
+      "effect": {"kind": "all_pay_pool", "amount": 400}
+    },
+    {
+      "id": "exp_rent_steal",
+      "name": "租金猎手",
+      "description": "你精明地重新谈判了所有租约，下次收租翻倍。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "status", "status": "rent_double_once", "duration": 2}
+    },
+    {
+      "id": "exp_big_bonus",
+      "name": "头等奖金",
+      "description": "城市创业大赛特等奖，奖金丰厚。",
+      "rarity": "rare",
+      "target_type": "self",
+      "effect": {"kind": "gain_money", "amount": 4200}
+    },
+    {
+      "id": "exp_road_maintenance",
+      "name": "道路养护费",
+      "description": "门前道路翻修，按房产数量摊派。",
+      "rarity": "common",
+      "target_type": "self",
+      "effect": {"kind": "pay_per_property", "amount": 180}
+    }
+  ]
+}

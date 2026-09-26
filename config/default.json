@@ -1,0 +1,69 @@
+{
+  "protocol_version": 1,
+  "network": {
+    "default_port": 28080,
+    "discovery_port": 28081,
+    "discovery_interval_sec": 1.5,
+    "heartbeat_interval_sec": 2.0,
+    "heartbeat_timeout_sec": 8.0,
+    "reconnect_grace_sec": 30.0,
+    "client_connect_timeout_sec": 5.0,
+    "max_players": 6,
+    "min_players": 2,
+    "backlog": 8
+  },
+  "display": {
+    "width": 1600,
+    "height": 900,
+    "fps": 60,
+    "fullscreen": false,
+    "supported_resolutions": [
+      [
+        1280,
+        720
+      ],
+      [
+        1440,
+        810
+      ],
+      [
+        1600,
+        900
+      ],
+      [
+        1920,
+        1080
+      ]
+    ]
+  },
+  "gameplay": {
+    "min_players": 2,
+    "max_players": 6,
+    "starting_money": 15000,
+    "start_bonus": 2000,
+    "pass_start_bonus": 2000,
+    "jail_release_fee": 1500,
+    "jail_max_turns": 3,
+    "jail_dice_needed": 6,
+    "tax_fixed": 1200,
+    "tax_asset_rate": 0.04,
+    "max_property_level": 3,
+    "max_cards_per_player": 5,
+    "bonus_pool_base": 1500,
+    "rent_double_capital_threshold": 0.6,
+    "ai_safety_reserve": 2500,
+    "max_rounds": 200,
+    "starting_cards": 2
+  },
+  "audio": {
+    "master_volume": 0.7,
+    "bgm_volume": 0.45,
+    "sfx_volume": 0.8,
+    "muted": false
+  },
+  "ui": {
+    "animation_speed": 1.0,
+    "font_scale": "default",
+    "debug_overlay": false
+  }
+}
