@@ -1,30 +1,35 @@
 @echo off
-chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
 
 echo ============================================
-echo   Richman 大富翁 - 启动器
+echo   Richman - City of Light
 echo ============================================
 echo.
 
-if not exist ".venv\Scripts\python.exe" (
-    echo [错误] 未找到虚拟环境 .venv\Scripts\python.exe
-    echo.
-    echo 请先在本目录执行以下命令创建环境并安装依赖：
-    echo.
-    echo     py -3.10 -m venv .venv
-    echo     .venv\Scripts\python.exe -m pip install -r requirements.txt
-    echo.
-    echo 本启动器不会自动下载任何内容。
-    pause
-    exit /b 1
-)
+if not exist ".venv\Scripts\python.exe" goto no_venv
 
 ".venv\Scripts\python.exe" main.py %*
-if errorlevel 1 (
-    echo.
-    echo [提示] 程序以非 0 状态码退出，请查看上方错误信息。
-    pause
-)
+if errorlevel 1 goto failed
+goto end
+
+:no_venv
+echo [ERROR] Virtual environment not found: .venv\Scripts\python.exe
+echo.
+echo Please run the following commands in this folder first:
+echo.
+echo     py -3.10 -m venv .venv
+echo     .venv\Scripts\python.exe -m pip install -r requirements.txt
+echo.
+echo This launcher does not download anything by itself.
+pause
+exit /b 1
+
+:failed
+echo.
+echo [ERROR] The game exited with a non-zero code. See the message above.
+pause
+exit /b 1
+
+:end
 endlocal

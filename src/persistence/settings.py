@@ -120,21 +120,48 @@ class Settings:
     def get(self, section: str, key: str, default: Any = None) -> Any:
         return (self.data.get(section) or {}).get(key, default)
 
+    # ---- 带类型保护的读取：配置文件被手工改错时也不应让游戏起不来
+    def _as_float(self, section: str, key: str, default: float) -> float:
+        try:
+            value = float(self.get(section, key, default))
+        except (TypeError, ValueError):
+            log.warning("设置 %s.%s 的值无效，使用默认值 %s", section, key, default)
+            return float(default)
+        return value
+
+    def _as_int(self, section: str, key: str, default: int) -> int:
+        try:
+            value = int(float(self.get(section, key, default)))
+        except (TypeError, ValueError):
+            log.warning("设置 %s.%s 的值无效，使用默认值 %s", section, key, default)
+            return int(default)
+        return value
+
+    def _as_bool(self, section: str, key: str, default: bool) -> bool:
+        value = self.get(section, key, default)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in ("1", "true", "yes", "on")
+        if isinstance(value, (int, float)):
+            return bool(value)
+        return bool(default)
+
     def set(self, section: str, key: str, value: Any) -> None:
         self.data.setdefault(section, {})[key] = value
 
     # ---- 显示
     @property
     def width(self) -> int:
-        return int(self.get("display", "width", 1600))
+        return self._as_int("display", "width", 1600)
 
     @property
     def height(self) -> int:
-        return int(self.get("display", "height", 900))
+        return self._as_int("display", "height", 900)
 
     @property
     def fullscreen(self) -> bool:
-        return bool(self.get("display", "fullscreen", False))
+        return self._as_bool("display", "fullscreen", False)
 
     def set_resolution(self, width: int, height: int) -> None:
         self.set("display", "width", int(width))
@@ -146,36 +173,36 @@ class Settings:
     # ---- 音频
     @property
     def master_volume(self) -> float:
-        return float(self.get("audio", "master_volume", 0.7))
+        return self._as_float("audio", "master_volume", 0.7)
 
     @property
     def bgm_volume(self) -> float:
-        return float(self.get("audio", "bgm_volume", 0.45))
+        return self._as_float("audio", "bgm_volume", 0.45)
 
     @property
     def sfx_volume(self) -> float:
-        return float(self.get("audio", "sfx_volume", 0.8))
+        return self._as_float("audio", "sfx_volume", 0.8)
 
     @property
     def muted(self) -> bool:
-        return bool(self.get("audio", "muted", False))
+        return self._as_bool("audio", "muted", False)
 
     # ---- UI
     @property
     def animation_speed(self) -> float:
-        return float(self.get("ui", "animation_speed", 1.0))
+        return self._as_float("ui", "animation_speed", 1.0)
 
     @property
     def font_scale(self) -> float:
-        return float(self.get("ui", "font_scale", 1.0))
+        return self._as_float("ui", "font_scale", 1.0)
 
     @property
     def debug_overlay(self) -> bool:
-        return bool(self.get("ui", "debug_overlay", False))
+        return self._as_bool("ui", "debug_overlay", False)
 
     @property
     def show_tooltips(self) -> bool:
-        return bool(self.get("ui", "show_tooltips", True))
+        return self._as_bool("ui", "show_tooltips", True)
 
     # ---- 玩家
     @property
@@ -205,7 +232,7 @@ class Settings:
 
     @property
     def last_port(self) -> int:
-        return int(self.get("network", "last_port", 28080))
+        return self._as_int("network", "last_port", 28080)
 
     @property
     def last_room_name(self) -> str:

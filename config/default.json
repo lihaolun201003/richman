@@ -63,7 +63,7 @@
   },
   "ui": {
     "animation_speed": 1.0,
-    "font_scale": "default",
+    "font_scale": 1.0,
     "debug_overlay": false
   }
 }
