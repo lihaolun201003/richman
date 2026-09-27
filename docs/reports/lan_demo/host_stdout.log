@@ -1,0 +1,13 @@
+pygame 2.6.1 (SDL 2.28.4, Python 3.10.11)
+Hello from the pygame community. https://www.pygame.org/contribute.html
+16:31:08 [INFO] src.app: 进入主循环
+16:31:08 [INFO] src.network.host: 房间已开启：双进程测试房间 端口 28191
+16:31:09 [INFO] src.network.host: 新连接：('127.0.0.1', 63320)
+16:31:10 [INFO] src.network.host: 新连接：('127.0.0.1', 63327)
+16:31:10 [INFO] src.network.host: 客户端进程 加入了房间
+16:31:10 [INFO] src.network.host: 游戏开始，4 名参与者
+16:31:24 [INFO] src.network.host: 客户端进程 掉线
+16:31:59 [INFO] src.network.host: 新连接：('127.0.0.1', 49719)
+16:31:59 [INFO] src.network.host: 新连接：('127.0.0.1', 49720)
+16:31:59 [INFO] src.network.host: 客户端进程 掉线
+16:32:01 [INFO] src.app: 已退出

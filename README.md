@@ -210,7 +210,7 @@ dist\Richman\diag\*.zip                    导出的联机诊断包
 需要 **Python 3.10 或更高**（Windows）。
 
 ```powershell
-cd C:\Users\lihao\Desktop\richman
+cd 你解压/克隆到的目录\richman
 py -3.10 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe main.py
@@ -314,7 +314,7 @@ richman/
 
 # 双实例真实联机（两个独立进程：建房 → 加入 → 准备 → 对局 → 掉线 → AI 接管 → 重连）
 .\.venv\Scripts\python.exe tools\two_instance_demo.py --rounds 3
-.\.venv\Scripts\python.exe tools\two_instance_demo.py --host-ip 192.168.1.103   # 走真实网卡
+.\.venv\Scripts\python.exe tools\two_instance_demo.py --host-ip 192.168.1.100   # 换成你自己的局域网 IP
 
 # 性能预算实测（生成 docs/reports/perf_v04.md）
 .\.venv\Scripts\python.exe tools\perf_check.py --frames 120

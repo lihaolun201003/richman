@@ -1,0 +1,18 @@
+pygame 2.6.1 (SDL 2.28.4, Python 3.10.11)
+Hello from the pygame community. https://www.pygame.org/contribute.html
+16:31:09 [INFO] src.app: 进入主循环
+16:31:25 [INFO] src.network.reconnect: 重连尝试失败：重连失败：timed out
+16:31:28 [INFO] src.network.reconnect: 重连尝试失败：重连失败：timed out
+16:31:31 [INFO] src.network.reconnect: 重连尝试失败：重连失败：timed out
+16:31:34 [INFO] src.network.reconnect: 重连尝试失败：重连失败：timed out
+16:31:37 [INFO] src.network.reconnect: 重连尝试失败：重连失败：timed out
+16:31:40 [INFO] src.network.reconnect: 重连尝试失败：重连失败：timed out
+16:31:43 [INFO] src.network.reconnect: 重连尝试失败：重连失败：timed out
+16:31:46 [INFO] src.network.reconnect: 重连尝试失败：重连失败：timed out
+16:31:49 [INFO] src.network.reconnect: 重连尝试失败：重连失败：timed out
+16:31:52 [INFO] src.network.reconnect: 重连尝试失败：重连失败：timed out
+16:31:56 [INFO] src.network.reconnect: 重连尝试失败：重连失败：timed out
+16:31:59 [INFO] src.network.reconnect: 重连尝试失败：重连失败：timed out
+16:31:59 [INFO] src.network.reconnect: 第 1 次重连尝试已发出（127.0.0.1:28191）
+16:32:02 [INFO] src.network.reconnect: 重连尝试失败：重连失败：timed out
+16:32:02 [INFO] src.app: 已退出

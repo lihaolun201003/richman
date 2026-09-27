@@ -10,7 +10,7 @@
 
 用法:
     python tools/two_instance_demo.py --rounds 6 --port 28180
-    python tools/two_instance_demo.py --host-ip 192.168.1.103     # 走真实局域网地址
+    python tools/two_instance_demo.py --host-ip 192.168.1.100     # 走真实局域网地址
     python tools/two_instance_demo.py --no-disconnect             # 不测重连
 
 最后一个参数 --host-ip 用本机的局域网 IPv4 而不是 127.0.0.1：

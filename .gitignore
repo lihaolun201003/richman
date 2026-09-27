@@ -19,12 +19,21 @@ tmp/
 .vscode/
 .idea/
 
+# 但联机验证的原始输出是报告引用的证据（已确认不含路径与用户名），单独放行
+!docs/reports/lan_demo/*.log
+!docs/reports/lan_demo_lanip/*.log
+
 # 用户本地设置（每台机器不同，不提交）
 config/user_settings.json
+settings.local.json
 
 # 存档属于本机运行产物
 saves/*.json
 !saves/.gitkeep
+autosave*
+
+# 联机诊断包（v0.4 起可从诊断页导出，含本机网络信息，绝不入库）
+diag/
 
 # 自动生成的校验截图（报告里的关键几张单独保留，其余忽略）
 docs/reports/shots/06b_wait_roll_*.png

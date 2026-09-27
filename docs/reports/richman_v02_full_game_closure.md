@@ -3,7 +3,7 @@
 - 版本：**Richman v0.2.0**（协议版本 2，存档版本 2）
 - 日期：2026-09-27
 - 上一版：`v0.1.0`（首版可玩局域网大富翁）
-- 项目：`C:\Users\lihao\Desktop\richman`
+- 项目：`<项目目录>`
 
 > 本报告只写**实际做过并验证过的**事情。每个结论都标了状态：
 > `IMPLEMENTED`（实现了）/ `VERIFIED`（实际验证过）/
@@ -541,7 +541,7 @@ dist\Richman\_internal\               依赖与游戏数据，整个目录 28.3 
 ```
 $ .\dist\Richman\Richman.exe --selftest --selftest-seconds 5
 Richman v0.2.0 (version (0, 2, 0))
-项目根目录: C:\Users\lihao\Desktop\richman\dist\Richman
+项目根目录: <项目目录>\dist\Richman
 中文字体: msyhl.ttc
 地图: 城市之光 36格, 海滨假日 40格
 预设: 标准局, 休闲局, 快速局
