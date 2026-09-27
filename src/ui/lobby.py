@@ -22,6 +22,9 @@ from .setup_scenes import CharacterPicker
 from .widgets import Button, Label, Panel
 
 
+from .setup_scenes import MapPresetSelector  # noqa: E402
+
+
 class LobbyScene(Scene):
     """房间大厅。"""
 
@@ -45,6 +48,9 @@ class LobbyScene(Scene):
     # ------------------------------------------------------------ 生命周期
 
     def on_enter(self, **kwargs: Any) -> None:
+        if not hasattr(self, 'selector'):
+            self.selector = MapPresetSelector(
+                pygame.Rect(1020, 452, 460, 76), None)
         self.character_id = self.app.settings.character_id
         self.color_id = self.app.settings.color_id
         if self.picker is None:
@@ -190,6 +196,8 @@ class LobbyScene(Scene):
                     return
         if self.picker is not None and self.picker.handle_event(event):
             return
+        if hasattr(self, 'selector') and self.selector.handle_event(event):
+            return
         super().handle_event(event)
 
     def _on_card_clicked(self, player_id: str) -> None:
@@ -224,13 +232,30 @@ class LobbyScene(Scene):
 
     def _button_rects(self):
         out = []
-        if self._is_room_host():
-            rect = pygame.Rect(1020, 190, 460, 54)
-            out.append((rect, self._add_ai))
-        else:
-            rect = pygame.Rect(1020, 190, 460, 54)
-            out.append((rect, self._toggle_ready))
+        rect = pygame.Rect(1020, 190, 460, 54)
+        out.append((rect, self._add_ai if self._is_room_host()
+                    else self._toggle_ready))
         return out
+
+    def _sync_selector(self, data: dict) -> None:
+        """把选择器与房间状态对齐；客户端只读。"""
+        if not hasattr(self, 'selector'):
+            self.selector = MapPresetSelector(
+                pygame.Rect(1020, 452, 460, 76), None)
+        sel = self.selector
+        host = self._is_room_host()
+        sel.editable = host
+        sel.on_change = self._on_map_or_preset if host else None
+        sel.set_map(data.get('map_file', 'default_map.json'))
+        sel.set_preset(data.get('preset', 'standard'))
+
+    def _on_map_or_preset(self, map_info: dict, preset: dict) -> None:
+        host = self._host()
+        if host is None:
+            return
+        host.lobby.set_map(map_info.get('file', 'default_map.json'))
+        host.lobby.set_preset(preset.get('key', 'standard'))
+        host.broadcast_lobby()
 
     # ------------------------------------------------------------ 绘制
 
@@ -248,6 +273,7 @@ class LobbyScene(Scene):
                         (124, 128))
         pygame.draw.line(surface, theme.color("border_soft"), (120, 152), (1480, 152), 1)
 
+        self._sync_selector(data)
         self._draw_room_info(surface, data)
         self._draw_seats(surface)
         if self.picker is not None:
@@ -255,6 +281,8 @@ class LobbyScene(Scene):
         theme.draw_text(surface, "选择你的角色", self.fonts.small(), theme.color("text_dim"),
                         (120, 596))
 
+        if hasattr(self, 'selector'):
+            self.selector.draw(surface, self.fonts)
         self.widgets[0].label = "离开房间"
         self._update_start_button()
         self.draw_widgets(surface)

@@ -6,12 +6,12 @@
   每帧只在其上叠加动态内容（归属色、等级、路障、棋子、高亮）；
 - 严格只读：BoardView 从不修改任何规则状态。
 
-坐标与索引的对应关系（index 顺时针），必须与 tools/gen_data.py 的
-side_of() 完全一致，否则格子会错位：
-    0  = 左下角   → 1..9   底边向右
-    10 = 右下角   → 11..17 右边向上
-    18 = 右上角   → 19..27 顶边向左
-    28 = 左上角   → 29..35 左边向下
+网格尺寸（列 × 行）与四角索引都从地图数据读取（Board.cols / Board.rows /
+Board.corners），因此新增地图不需要改这里。
+
+索引顺时针：
+    左下角 → 沿底边向右 → 右下角 → 沿右边向上 → 右上角
+    → 沿顶边向左 → 左上角 → 沿左边向下 → 回到左下角
 """
 from __future__ import annotations
 
@@ -24,34 +24,39 @@ from ..game.property import Property
 from ..game.tile import TileType
 from . import theme
 
-#: 棋盘网格：11 列 × 9 行（含四角），正好容纳 36 格
+#: 默认网格（城市之光），仅用于没有地图数据的装饰场景
 COLS = 11
 ROWS = 9
-#: 角格索引
-CORNER_BL = 0
-CORNER_BR = 10
-CORNER_TR = 18
-CORNER_TL = 28
+
+
+def grid_position_for(cols: int, rows: int, corners: list[int],
+                      index: int) -> tuple[int, int]:
+    """通用网格定位：给定网格尺寸与四角索引，算出 (列, 行)。"""
+    bl, br, tr, tl = corners[0], corners[1], corners[2], corners[3]
+    last_row, last_col = rows - 1, cols - 1
+    index = index % (2 * cols + 2 * (rows - 2))
+    if index == bl:
+        return 0, last_row
+    if index == br:
+        return last_col, last_row
+    if index == tr:
+        return last_col, 0
+    if index == tl:
+        return 0, 0
+    if bl < index < br:
+        return index - bl, last_row
+    if br < index < tr:
+        return last_col, last_row - (index - br)
+    if tr < index < tl:
+        return last_col - (index - tr), 0
+    return 0, index - tl
 
 
 def grid_position(index: int) -> tuple[int, int]:
-    """返回格子所在的 (列, 行)。索引超出 0..35 时环绕处理。"""
-    index = index % (COLS * 2 + (ROWS - 2) * 2)
-    if index == CORNER_BL:
-        return 0, ROWS - 1
-    if index == CORNER_BR:
-        return COLS - 1, ROWS - 1
-    if index == CORNER_TR:
-        return COLS - 1, 0
-    if index == CORNER_TL:
-        return 0, 0
-    if 1 <= index <= 9:
-        return index, ROWS - 1
-    if 11 <= index <= 17:
-        return COLS - 1, ROWS - 1 - (index - 10)
-    if 19 <= index <= 27:
-        return COLS - 1 - (index - 18), 0
-    return 0, index - 28
+    """默认地图（城市之光）的定位，供不带棋盘对象的装饰使用。"""
+    return grid_position_for(COLS, ROWS, [0, COLS - 1,
+                                          COLS + ROWS - 2,
+                                          2 * COLS + ROWS - 3], index)
 
 
 class BoardView:
@@ -59,14 +64,22 @@ class BoardView:
 
     def __init__(self, board: Board, rect: pygame.Rect) -> None:
         self.board = board
+        self.cols = max(4, int(getattr(board, "cols", COLS) or COLS))
+        self.rows = max(4, int(getattr(board, "rows", ROWS) or ROWS))
+        corners = list(getattr(board, "corners", None) or [])
+        if len(corners) != 4:
+            corners = [0, self.cols - 1, self.cols + self.rows - 2,
+                       2 * self.cols + self.rows - 3]
+        self.corners = corners
         area = pygame.Rect(rect)
-        self.cell = max(24, min(area.width // COLS, area.height // ROWS))
-        w, h = self.cell * COLS, self.cell * ROWS
+        self.cell = max(24, min(area.width // self.cols, area.height // self.rows))
+        w, h = self.cell * self.cols, self.cell * self.rows
         self.rect = pygame.Rect(
             area.x + (area.width - w) // 2,
             area.y + (area.height - h) // 2,
             w, h,
         )
+        # 静态层缓存与交互状态
         self.cache: pygame.Surface | None = None
         self.cache_key: tuple = ()
         self.hover_index: int | None = None
@@ -74,10 +87,13 @@ class BoardView:
         self._fonts: theme.FontManager | None = None
         self._property_getter = None
 
+    def position(self, index: int) -> tuple[int, int]:
+        return grid_position_for(self.cols, self.rows, self.corners, index)
+
     # ------------------------------------------------------------ 几何
 
     def tile_rect(self, index: int) -> pygame.Rect:
-        col, row = grid_position(index)
+        col, row = self.position(index)
         return pygame.Rect(
             self.rect.x + col * self.cell,
             self.rect.y + row * self.cell,
@@ -125,7 +141,7 @@ class BoardView:
 
         fonts = self._fonts
         for tile in self.board:
-            col, row = grid_position(tile.index)
+            col, row = self.position(tile.index)
             local_rect = pygame.Rect(col * self.cell, row * self.cell, self.cell, self.cell)
             self._draw_static_tile(surf, local_rect, tile, fonts)
 

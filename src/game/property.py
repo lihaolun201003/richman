@@ -128,6 +128,23 @@ class Property:
         self.level -= 1
         return True
 
+    def mortgage(self) -> bool:
+        """抵押：必须先是空地（建筑必须先降级）。"""
+        if self.owner_id is None or self.mortgaged or self.level > 0:
+            return False
+        self.mortgaged = True
+        return True
+
+    def redeem(self) -> bool:
+        if not self.mortgaged:
+            return False
+        self.mortgaged = False
+        return True
+
+    @property
+    def can_earn_rent(self) -> bool:
+        return self.owner_id is not None and not self.mortgaged
+
     # ------------------------------------------------------------ 序列化
     def to_dict(self) -> dict[str, Any]:
         return {

@@ -17,6 +17,8 @@ class GamePhase(str, Enum):
     MOVING = "MOVING"                    # 棋子逐格移动中
     ARRIVED = "ARRIVED"                  # 已落格，准备结算
     RESOLVE_TILE = "RESOLVE_TILE"        # 结算落点（购买/租金/事件/税收）
+    DEBT_RESOLUTION = "DEBT_RESOLUTION"  # 债务处理：玩家变卖 / 抵押自救
+    SHOP = "SHOP"                        # 商店：挑选道具
     WAIT_DECISION = "WAIT_DECISION"      # 等待玩家决策（购买、升级、选卡目标等）
     APPLY_EVENT = "APPLY_EVENT"          # 应用机遇事件效果
     JAIL_DECISION = "JAIL_DECISION"      # 监狱决策（保释/掷骰）
@@ -33,6 +35,8 @@ class GamePhase(str, Enum):
             GamePhase.MOVING: "移动中",
             GamePhase.ARRIVED: "到达",
             GamePhase.RESOLVE_TILE: "结算地块",
+            GamePhase.DEBT_RESOLUTION: "债务处理",
+            GamePhase.SHOP: "商店",
             GamePhase.WAIT_DECISION: "等待决策",
             GamePhase.APPLY_EVENT: "应用事件",
             GamePhase.JAIL_DECISION: "看守所决策",
@@ -47,6 +51,8 @@ DECISION_PHASES = frozenset(
         GamePhase.WAIT_ROLL,
         GamePhase.WAIT_DECISION,
         GamePhase.JAIL_DECISION,
+        GamePhase.DEBT_RESOLUTION,
+        GamePhase.SHOP,
     }
 )
 
@@ -57,6 +63,8 @@ AUTO_PHASE_DURATIONS: dict[GamePhase, float] = {
     GamePhase.ROLLING: 1.1,
     GamePhase.ARRIVED: 0.2,
     GamePhase.RESOLVE_TILE: 0.45,
+    GamePhase.DEBT_RESOLUTION: 0.0,
+    GamePhase.SHOP: 0.0,
     GamePhase.APPLY_EVENT: 0.9,
     GamePhase.TURN_END: 0.5,
 }

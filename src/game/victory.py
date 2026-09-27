@@ -32,6 +32,45 @@ def _score(state: GameState, player: Player) -> tuple[int, int, int]:
     )
 
 
+#: 趣味称号：(称号, 判定键, 是否越大越好)
+TITLES = [
+    ("地产大亨", "property_count", True),
+    ("最佳房东", "rent_income", True),
+    ("卡牌大师", "cards_used", True),
+    ("运势之王", "event_gain", True),
+    ("散财童子", "money_spent", True),
+    ("守财奴", "money", True),
+]
+
+
+def award_titles(state: GameState, rows: list[dict[str, Any]]) -> dict[str, str]:
+    """按统计给玩家发趣味称号。只影响展示，不参与胜负判定。"""
+    awards: dict[str, str] = {}
+    for title, key, bigger in TITLES:
+        best_id, best_value = None, None
+        for row in rows:
+            value = row.get(key)
+            if value is None:
+                value = row["stats"].get(key, 0)
+            if bigger:
+                if best_value is None or value > best_value:
+                    best_id, best_value = row["player_id"], value
+            elif best_value is None or value < best_value:
+                best_id, best_value = row["player_id"], value
+        if best_id is not None and best_value:
+            awards.setdefault(best_id, title)
+    return awards
+
+
+def unlucky_one(state: GameState, rows: list[dict[str, Any]]) -> str:
+    """最早破产的人拿「倒霉蛋」。"""
+    bankrupt = [r for r in rows if r["bankrupt"]]
+    if not bankrupt:
+        return ""
+    first = min(bankrupt, key=lambda r: r["bankrupt_order"] if r["bankrupt_order"] > 0 else 999)
+    return first["player_id"]
+
+
 def ranking(state: GameState) -> list[dict[str, Any]]:
     """返回全部玩家的结算排名。
 
@@ -40,6 +79,7 @@ def ranking(state: GameState) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for p in state.players:
         props = state.properties_of(p.id)
+        ledger_summary = state.ledger.player_summary(p.id) if hasattr(state, "ledger") else {}
         rows.append({
             "player_id": p.id,
             "name": p.name,
@@ -51,8 +91,11 @@ def ranking(state: GameState) -> list[dict[str, Any]]:
             "money": p.money,
             "property_count": len(props),
             "property_value": sum(x.asset_value for x in props),
+            "upgrade_value": sum(x.total_invested - x.price for x in props),
             "total_asset": state.player_asset_value(p.id),
             "stats": dict(p.stats),
+            "income": dict(ledger_summary.get("income", {})),
+            "expense": dict(ledger_summary.get("expense", {})),
             "winner": p.id == state.winner_id,
         })
 
@@ -67,6 +110,16 @@ def ranking(state: GameState) -> list[dict[str, Any]]:
     rows.sort(key=sort_key)
     for i, r in enumerate(rows, start=1):
         r["rank"] = i
+
+    titles = award_titles(state, rows)
+    unlucky = unlucky_one(state, rows)
+    for r in rows:
+        tags = []
+        if r["player_id"] in titles:
+            tags.append(titles[r["player_id"]])
+        if r["player_id"] == unlucky:
+            tags.append("倒霉蛋")
+        r["titles"] = tags
     return rows
 
 
@@ -96,4 +149,17 @@ def final_stats(state: GameState) -> dict[str, Any]:
         "total_start_passes": sum(p.stats.get("start_passes", 0) for p in state.players),
         "duration_sec": (state.ended_at or 0) - state.started_at if state.ended_at else 0,
         "bonus_pool": state.bonus_pool,
+        "flow": _flow_summary(state),
     }
+
+
+def _flow_summary(state: GameState) -> dict[str, Any]:
+    """全场收入 / 支出的分类汇总（结算界面用）。"""
+    income: dict[str, int] = {}
+    expense: dict[str, int] = {}
+    for e in state.ledger.entries:
+        bucket = income if e.amount > 0 else expense
+        bucket[e.reason] = bucket.get(e.reason, 0) + abs(e.amount)
+    top_in = dict(sorted(income.items(), key=lambda kv: -kv[1])[:4])
+    top_out = dict(sorted(expense.items(), key=lambda kv: -kv[1])[:4])
+    return {"income": top_in, "expense": top_out}

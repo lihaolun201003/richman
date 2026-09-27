@@ -66,8 +66,21 @@ def save_game(state: GameState, path: str, meta: dict[str, Any] | None = None) -
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(doc, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, path)
-    return path
+    # Windows 上目标文件可能正被另一个进程 / 杀毒软件短暂占用，
+    # os.replace 会直接抛错；这里做几次短暂重试，仍然失败才向上报。
+    last_error: OSError | None = None
+    for attempt in range(5):
+        try:
+            os.replace(tmp, path)
+            return path
+        except OSError as exc:
+            last_error = exc
+            time.sleep(0.05 * (attempt + 1))
+    try:
+        os.remove(tmp)
+    except OSError:
+        pass
+    raise last_error if last_error else OSError("保存失败")
 
 
 def read_save_meta(path: str) -> dict[str, Any]:

@@ -123,7 +123,10 @@ class MenuScene(Scene):
             Button(pygame.Rect(cx - width // 2, top + 256, width, 52), "设置",
                    on_click=lambda: self.app.scenes.switch_to("settings", back="menu"),
                    style="ghost", icon="○"),
-            Button(pygame.Rect(cx - width // 2, top + 314, width, 52), "退出游戏",
+            Button(pygame.Rect(cx - width // 2, top + 314, width, 52), "规则与图鉴",
+                   on_click=lambda: self.app.scenes.switch_to("help", back="menu"),
+                   style="ghost", icon="▮"),
+            Button(pygame.Rect(cx - width // 2, top + 372, width, 52), "退出游戏",
                    on_click=self.app.quit, style="ghost"),
         ]
 
@@ -165,6 +168,9 @@ class MenuScene(Scene):
                 return
             if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                 self._start_local()
+                return
+            if event.key == pygame.K_h:
+                self.app.scenes.switch_to("help", back="menu")
                 return
         super().handle_event(event)
 
@@ -212,8 +218,10 @@ class MenuScene(Scene):
                         theme.color("text_dim"), (cx, 310), anchor="center")
 
     def _draw_footer(self, surface: pygame.Surface) -> None:
-        theme.draw_text(surface, "Enter 快速开始单机   ·   Esc 退出", self.fonts.tiny(),
-                        theme.color("text_mute"), (400, 856), anchor="center")
-        theme.draw_text(surface, "v1.0 · 原创实现 · 本地局域网联机，无需联网",
+        theme.draw_text(surface, "Enter 快速开始单机   ·   H 规则图鉴   ·   Esc 退出",
+                        self.fonts.tiny(), theme.color("text_mute"), (400, 866),
+                        anchor="center")
+        from ..version import APP_VERSION, VERSION_LABEL
+        theme.draw_text(surface, f"{APP_VERSION} · {VERSION_LABEL}",
                         self.fonts.tiny(), theme.color("text_mute"),
                         (1580, 880), anchor="bottomright")

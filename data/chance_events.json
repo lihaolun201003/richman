@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "description": "机遇事件注册表。effect.kind 由 src/game/chance.py 中的效果处理器统一执行。",
+  "version": 2,
+  "description": "机遇事件注册表。polarity 决定事件出现在哪类格子上：fortune（福运格）/ disaster（灾祸格）/ neutral（两者都可能）。effect.kind 由 src/game/chance.py 统一执行。",
   "cards": [
     {
       "id": "exp_lucky_coin",
@@ -8,7 +8,11 @@
       "description": "在广场喷泉里捡到一枚古币，卖了个好价钱。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "gain_money", "amount": 600}
+      "effect": {
+        "kind": "gain_money",
+        "amount": 600
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_stock_rise",
@@ -16,7 +20,11 @@
       "description": "你持有的一支小盘股突然被并购。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "gain_money", "amount": 1200}
+      "effect": {
+        "kind": "gain_money",
+        "amount": 1200
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_quarter_bonus",
@@ -24,7 +32,11 @@
       "description": "公司业绩超预期，全员发奖金。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "gain_money", "amount": 1800}
+      "effect": {
+        "kind": "gain_money",
+        "amount": 1800
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_lottery",
@@ -32,7 +44,11 @@
       "description": "随手买的彩票中了二等奖。",
       "rarity": "rare",
       "target_type": "self",
-      "effect": {"kind": "gain_money", "amount": 3500}
+      "effect": {
+        "kind": "gain_money",
+        "amount": 3500
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_city_festival",
@@ -40,7 +56,11 @@
       "description": "市政庆典给每位市民派发红包。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "gain_money", "amount": 1000}
+      "effect": {
+        "kind": "gain_money",
+        "amount": 1000
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_traffic_fine",
@@ -48,7 +68,11 @@
       "description": "在禁停区停了五分钟。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "lose_money", "amount": 500}
+      "effect": {
+        "kind": "lose_money",
+        "amount": 500
+      },
+      "polarity": "disaster"
     },
     {
       "id": "exp_house_repair",
@@ -56,7 +80,11 @@
       "description": "老房子的水管爆了，必须马上修。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "lose_money", "amount": 800}
+      "effect": {
+        "kind": "lose_money",
+        "amount": 800
+      },
+      "polarity": "disaster"
     },
     {
       "id": "exp_medical",
@@ -64,7 +92,11 @@
       "description": "急性肠胃炎住院三天。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "lose_money", "amount": 1200}
+      "effect": {
+        "kind": "lose_money",
+        "amount": 1200
+      },
+      "polarity": "disaster"
     },
     {
       "id": "exp_invest_fail",
@@ -72,7 +104,11 @@
       "description": "合伙人带着钱跑了。",
       "rarity": "rare",
       "target_type": "self",
-      "effect": {"kind": "lose_money", "amount": 2200}
+      "effect": {
+        "kind": "lose_money",
+        "amount": 2200
+      },
+      "polarity": "disaster"
     },
     {
       "id": "exp_market_crash",
@@ -80,7 +116,11 @@
       "description": "持有的资产按比例缩水。",
       "rarity": "uncommon",
       "target_type": "self",
-      "effect": {"kind": "lose_money_percent", "percent": 0.06}
+      "effect": {
+        "kind": "lose_money_percent",
+        "percent": 0.06
+      },
+      "polarity": "disaster"
     },
     {
       "id": "exp_move_forward_3",
@@ -88,7 +128,11 @@
       "description": "搭上顺风车，前进 3 格。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "move_forward", "steps": 3}
+      "effect": {
+        "kind": "move_forward",
+        "steps": 3
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_move_forward_5",
@@ -96,7 +140,11 @@
       "description": "地铁临时提速，前进 5 格。",
       "rarity": "uncommon",
       "target_type": "self",
-      "effect": {"kind": "move_forward", "steps": 5}
+      "effect": {
+        "kind": "move_forward",
+        "steps": 5
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_move_backward_3",
@@ -104,7 +152,11 @@
       "description": "走错了方向，后退 3 格。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "move_backward", "steps": 3}
+      "effect": {
+        "kind": "move_backward",
+        "steps": 3
+      },
+      "polarity": "disaster"
     },
     {
       "id": "exp_back_to_start",
@@ -112,7 +164,10 @@
       "description": "被公司紧急召回城市广场。",
       "rarity": "uncommon",
       "target_type": "self",
-      "effect": {"kind": "move_to_start"}
+      "effect": {
+        "kind": "move_to_start"
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_teleport",
@@ -120,7 +175,10 @@
       "description": "一台失控的实验传送机启动了。",
       "rarity": "uncommon",
       "target_type": "self",
-      "effect": {"kind": "teleport_random"}
+      "effect": {
+        "kind": "teleport_random"
+      },
+      "polarity": "neutral"
     },
     {
       "id": "exp_share_dividend",
@@ -128,7 +186,11 @@
       "description": "你参股的项目向所有合伙人派息。",
       "rarity": "uncommon",
       "target_type": "all_others",
-      "effect": {"kind": "collect_from_all", "amount": 350}
+      "effect": {
+        "kind": "collect_from_all",
+        "amount": 350
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_charity",
@@ -136,7 +198,11 @@
       "description": "被镜头拍到了，只好给每人发红包。",
       "rarity": "common",
       "target_type": "all_others",
-      "effect": {"kind": "pay_all", "amount": 300}
+      "effect": {
+        "kind": "pay_all",
+        "amount": 300
+      },
+      "polarity": "disaster"
     },
     {
       "id": "exp_rent_half",
@@ -144,7 +210,12 @@
       "description": "你和房东谈成了折扣，下次付租减半。",
       "rarity": "uncommon",
       "target_type": "self",
-      "effect": {"kind": "status", "status": "rent_discount_once", "duration": 1}
+      "effect": {
+        "kind": "status",
+        "status": "rent_discount_once",
+        "duration": 1
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_rent_double",
@@ -152,7 +223,12 @@
       "description": "客流暴涨，下次收租翻倍。",
       "rarity": "uncommon",
       "target_type": "self",
-      "effect": {"kind": "status", "status": "rent_double_once", "duration": 1}
+      "effect": {
+        "kind": "status",
+        "status": "rent_double_once",
+        "duration": 1
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_free_rent",
@@ -160,7 +236,12 @@
       "description": "一张盖了章的特批文件，可以免除一次租金。",
       "rarity": "uncommon",
       "target_type": "self",
-      "effect": {"kind": "status", "status": "free_rent", "duration": 1}
+      "effect": {
+        "kind": "status",
+        "status": "free_rent",
+        "duration": 1
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_free_upgrade",
@@ -168,7 +249,10 @@
       "description": "政府补贴让你免费升级一处地产。",
       "rarity": "rare",
       "target_type": "self",
-      "effect": {"kind": "free_upgrade"}
+      "effect": {
+        "kind": "free_upgrade"
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_debt_collect",
@@ -176,7 +260,11 @@
       "description": "指定一位对手偿还欠你的旧账。",
       "rarity": "uncommon",
       "target_type": "chosen_other",
-      "effect": {"kind": "demand_from_player", "amount": 900}
+      "effect": {
+        "kind": "demand_from_player",
+        "amount": 900
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_discount_coupon",
@@ -184,7 +272,15 @@
       "description": "得到一张购房折扣券，下次购地打七折。",
       "rarity": "uncommon",
       "target_type": "self",
-      "effect": {"kind": "status", "status": "purchase_discount", "duration": 1, "payload": {"percent": 30}}
+      "effect": {
+        "kind": "status",
+        "status": "purchase_discount",
+        "duration": 1,
+        "payload": {
+          "percent": 30
+        }
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_upgrade_discount",
@@ -192,7 +288,15 @@
       "description": "装修公司搞活动，下次升级便宜四成。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "status", "status": "upgrade_discount", "duration": 1, "payload": {"percent": 40}}
+      "effect": {
+        "kind": "status",
+        "status": "upgrade_discount",
+        "duration": 1,
+        "payload": {
+          "percent": 40
+        }
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_go_jail",
@@ -200,7 +304,10 @@
       "description": "夜跑没带身份证，被请去看守所。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "go_to_jail"}
+      "effect": {
+        "kind": "go_to_jail"
+      },
+      "polarity": "disaster"
     },
     {
       "id": "exp_roll_again",
@@ -208,7 +315,10 @@
       "description": "状态火热，立即再掷一次骰子。",
       "rarity": "uncommon",
       "target_type": "self",
-      "effect": {"kind": "roll_again"}
+      "effect": {
+        "kind": "roll_again"
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_skip_turn",
@@ -216,7 +326,12 @@
       "description": "被拉去开紧急会议，暂停一回合。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "status", "status": "skip_turn", "duration": 1}
+      "effect": {
+        "kind": "status",
+        "status": "skip_turn",
+        "duration": 1
+      },
+      "polarity": "disaster"
     },
     {
       "id": "exp_mystery_parcel",
@@ -224,7 +339,11 @@
       "description": "收到一个没有寄件人的包裹，里面是一张道具卡。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "gain_card", "random": true}
+      "effect": {
+        "kind": "gain_card",
+        "random": true
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_security_contract",
@@ -232,7 +351,12 @@
       "description": "签下一份安保合同，三回合内受到保护。",
       "rarity": "uncommon",
       "target_type": "self",
-      "effect": {"kind": "status", "status": "protected", "duration": 3}
+      "effect": {
+        "kind": "status",
+        "status": "protected",
+        "duration": 3
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_pickpocket",
@@ -240,7 +364,10 @@
       "description": "背包被划开，丢了一张道具卡。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "lose_card"}
+      "effect": {
+        "kind": "lose_card"
+      },
+      "polarity": "disaster"
     },
     {
       "id": "exp_lucky_dice",
@@ -248,7 +375,15 @@
       "description": "得到一颗灌了铅的骰子，下次掷骰必为 6。",
       "rarity": "uncommon",
       "target_type": "self",
-      "effect": {"kind": "status", "status": "fixed_dice", "duration": 1, "payload": {"value": 6}}
+      "effect": {
+        "kind": "status",
+        "status": "fixed_dice",
+        "duration": 1,
+        "payload": {
+          "value": 6
+        }
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_pool_gain",
@@ -256,7 +391,10 @@
       "description": "所有未领取的城市奖金都归你了。",
       "rarity": "uncommon",
       "target_type": "self",
-      "effect": {"kind": "bonus_pool_gain"}
+      "effect": {
+        "kind": "bonus_pool_gain"
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_pool_pay",
@@ -264,7 +402,11 @@
       "description": "被摊派了一笔城市建设费，注入奖金池。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "pay_bonus_pool", "amount": 700}
+      "effect": {
+        "kind": "pay_bonus_pool",
+        "amount": 700
+      },
+      "polarity": "disaster"
     },
     {
       "id": "exp_pool_all",
@@ -272,7 +414,11 @@
       "description": "所有人共同为城市奖金池出资。",
       "rarity": "common",
       "target_type": "all_players",
-      "effect": {"kind": "all_pay_pool", "amount": 400}
+      "effect": {
+        "kind": "all_pay_pool",
+        "amount": 400
+      },
+      "polarity": "disaster"
     },
     {
       "id": "exp_rent_steal",
@@ -280,7 +426,12 @@
       "description": "你精明地重新谈判了所有租约，下次收租翻倍。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "status", "status": "rent_double_once", "duration": 2}
+      "effect": {
+        "kind": "status",
+        "status": "rent_double_once",
+        "duration": 2
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_big_bonus",
@@ -288,7 +439,11 @@
       "description": "城市创业大赛特等奖，奖金丰厚。",
       "rarity": "rare",
       "target_type": "self",
-      "effect": {"kind": "gain_money", "amount": 4200}
+      "effect": {
+        "kind": "gain_money",
+        "amount": 4200
+      },
+      "polarity": "fortune"
     },
     {
       "id": "exp_road_maintenance",
@@ -296,7 +451,11 @@
       "description": "门前道路翻修，按房产数量摊派。",
       "rarity": "common",
       "target_type": "self",
-      "effect": {"kind": "pay_per_property", "amount": 180}
+      "effect": {
+        "kind": "pay_per_property",
+        "amount": 180
+      },
+      "polarity": "disaster"
     }
   ]
 }

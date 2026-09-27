@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .player import StatusEffect
+from . import modifiers as mods
+from .ledger import Reason
+from .player import STATUS_EVENT_IMMUNE, STATUS_LUCKY, StatusEffect
 from .state import GameState
 from .events import (
     EventType,
@@ -33,10 +35,19 @@ FOLLOWUP_FREE_UPGRADE = "free_upgrade"
 FOLLOWUP_CHOOSE_TARGET = "choose_target"
 
 
+class Polarity:
+    """事件正负倾向，决定它出现在哪类格子上。"""
+
+    FORTUNE = "fortune"      # 福运格
+    DISASTER = "disaster"    # 灾祸格
+    NEUTRAL = "neutral"      # 两类格子都可能出现
+
+
 class ChanceCard:
     """一张机遇卡定义。"""
 
-    __slots__ = ("id", "name", "description", "rarity", "target_type", "effect")
+    __slots__ = ("id", "name", "description", "rarity", "target_type",
+                 "effect", "polarity")
 
     def __init__(self, d: dict[str, Any]) -> None:
         self.id = d["id"]
@@ -45,6 +56,7 @@ class ChanceCard:
         self.rarity = d.get("rarity", "common")
         self.target_type = d.get("target_type", "self")
         self.effect = dict(d.get("effect") or {})
+        self.polarity = d.get("polarity", Polarity.NEUTRAL)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -54,6 +66,7 @@ class ChanceCard:
             "rarity": self.rarity,
             "target_type": self.target_type,
             "effect": dict(self.effect),
+            "polarity": self.polarity,
         }
 
     def __repr__(self) -> str:  # pragma: no cover
@@ -101,42 +114,63 @@ def build_deck(state: GameState, registry: ChanceRegistry) -> None:
     state.chance_discard = []
 
 
-def draw(state: GameState, registry: ChanceRegistry) -> ChanceCard:
-    """抽一张机遇卡；牌堆空了自动重洗弃牌堆。"""
-    if not state.chance_deck:
-        rng = state.next_rng()
-        if state.chance_discard:
-            state.chance_deck = list(state.chance_discard)
-            state.chance_discard = []
-            rng.shuffle(state.chance_deck)
-        else:
-            build_deck(state, registry)
-    cid = state.chance_deck.pop()
-    state.chance_discard.append(cid)
-    if len(state.chance_discard) > 200:
-        del state.chance_discard[:100]
-    return registry.cards[cid]
+def _matches(card: ChanceCard, polarity: str | None) -> bool:
+    if polarity is None:
+        return True
+    return card.polarity == polarity or card.polarity == Polarity.NEUTRAL
+
+
+def draw(state: GameState, registry: ChanceRegistry,
+         polarity: str | None = None) -> ChanceCard:
+    """抽一张事件卡；牌堆空了自动重洗弃牌堆。
+
+    polarity 不为 None 时只在牌堆里找匹配倾向的卡
+    （福运格只出好事，灾祸格只出坏事），中性卡两类都可能出现。
+    """
+    for _ in range(2):
+        if not state.chance_deck:
+            rng = state.next_rng()
+            if state.chance_discard:
+                state.chance_deck = list(state.chance_discard)
+                state.chance_discard = []
+                rng.shuffle(state.chance_deck)
+            else:
+                build_deck(state, registry)
+        for i in range(len(state.chance_deck) - 1, -1, -1):
+            card = registry.cards[state.chance_deck[i]]
+            if _matches(card, polarity):
+                state.chance_deck.pop(i)
+                state.chance_discard.append(card.id)
+                if len(state.chance_discard) > 200:
+                    del state.chance_discard[:100]
+                return card
+        # 本轮牌堆没有匹配的卡，把它们全部当作已抽走，进入下一轮重洗
+        state.chance_discard.extend(state.chance_deck)
+        state.chance_deck = []
+    # 极端兜底：直接返回任意一张
+    return registry.cards[state.next_rng().choice(registry.ids())]
 
 
 # ------------------------------------------------------------------ 效果执行
 
 def _gain(state: GameState, player, amount: int) -> int:
     """给玩家加钱，含角色「事件收益加成」。返回实际增加额。"""
-    bonus_rate = player.perk_value("event_gain_bonus")
+    bonus_rate = mods.perk_special(player.perk, "event_gain_bonus")
     if bonus_rate and amount > 0:
         amount = int(round(amount * (1.0 + bonus_rate)))
-    player.money += amount
+    # 幸运状态：事件收益翻倍
+    if amount > 0 and player.has_status(STATUS_LUCKY):
+        amount *= 2
+    amount = state.ledger.gain(state, player, amount, Reason.CHANCE, "机遇事件")
     player.stats["event_gain"] = player.stats.get("event_gain", 0) + amount
-    player.stats["money_earned"] = player.stats.get("money_earned", 0) + amount
     return amount
 
 
 def _spend(state: GameState, player, amount: int) -> int:
     """扣钱（可为负余额，由 engine 的债务流程处理）。返回实际扣款额。"""
     amount = max(0, int(amount))
-    player.money -= amount
+    state.ledger.pay_bank(state, player, amount, Reason.CHANCE, "机遇事件")
     player.stats["event_loss"] = player.stats.get("event_loss", 0) + amount
-    player.stats["money_spent"] = player.stats.get("money_spent", 0) + amount
     return amount
 
 
@@ -174,8 +208,7 @@ def apply_effect(
         total = 0
         for other in state.other_active_players(player.id):
             pay = min(per, max(0, other.money))
-            other.money -= pay
-            other.stats["money_spent"] = other.stats.get("money_spent", 0) + pay
+            state.ledger.transfer(state, other, player, pay, Reason.CHANCE, "分红派息")
             total += pay
         got = _gain(state, player, total)
         return followups, f"{player.name} 从其他玩家共收取 {money(got)}"
@@ -184,10 +217,9 @@ def apply_effect(
         per = int(effect.get("amount", 0))
         total = 0
         for other in state.other_active_players(player.id):
-            other.money += per
-            other.stats["money_earned"] = other.stats.get("money_earned", 0) + per
+            state.ledger.transfer(state, player, other, per, Reason.CHANCE, "慈善捐款")
             total += per
-        spent = _spend(state, player, total)
+        spent = total
         return followups, f"{player.name} 向其他玩家共支付 {money(spent)}"
 
     if kind == "demand_from_player":
@@ -276,8 +308,7 @@ def apply_effect(
         total = 0
         for p in state.active_players():
             paid = min(per, max(0, p.money))
-            p.money -= paid
-            p.stats["money_spent"] = p.stats.get("money_spent", 0) + paid
+            state.ledger.pay_bank(state, p, paid, Reason.BONUS_POOL, "全城建设费")
             total += paid
         state.bonus_pool += total
         return followups, msg_pool_all(per, len(state.active_players()))

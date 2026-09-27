@@ -1,17 +1,19 @@
 {
-  "version": 1,
-  "description": "道具卡注册表。timing 表示可使用时机：own_turn 表示自己回合的掷骰前/决策窗口。",
+  "version": 2,
+  "description": "道具卡注册表。timing 决定使用时机（pre_roll / post_roll / on_property / reactive / any_turn / own_turn），tags 用于 AI 分类，shop_price 是在商店格购买的价格。effect.kind 由 src/game/engine.py 的 _apply_card 统一执行。",
   "cards": [
     {
       "id": "card_free_rent",
       "name": "免租卡",
-      "description": "获得一次免租效果，下一次需要支付租金时完全免除。",
+      "description": "下一次需要支付租金时完全免除。",
       "rarity": "common",
       "icon": "shield",
-      "timing": "own_turn",
+      "timing": "pre_roll",
+      "tags": ["defense", "economy"],
       "needs_target": null,
       "effect": {"kind": "status", "status": "free_rent", "duration": 1},
-      "ai_weight": 0.75
+      "ai_weight": 0.8,
+      "shop_price": 900
     },
     {
       "id": "card_double_rent",
@@ -19,10 +21,12 @@
       "description": "下一次向他人收取租金时，租金翻倍。",
       "rarity": "common",
       "icon": "coin",
-      "timing": "own_turn",
+      "timing": "pre_roll",
+      "tags": ["economy"],
       "needs_target": null,
       "effect": {"kind": "status", "status": "rent_double_once", "duration": 1},
-      "ai_weight": 0.7
+      "ai_weight": 0.7,
+      "shop_price": 1100
     },
     {
       "id": "card_teleport",
@@ -30,10 +34,12 @@
       "description": "立即把自己传送到棋盘上的任意一格。",
       "rarity": "rare",
       "icon": "portal",
-      "timing": "own_turn",
+      "timing": "pre_roll",
+      "tags": ["movement"],
       "needs_target": "tile",
       "effect": {"kind": "teleport"},
-      "ai_weight": 0.6
+      "ai_weight": 0.6,
+      "shop_price": 1800
     },
     {
       "id": "card_swap",
@@ -41,10 +47,12 @@
       "description": "与指定的一名玩家交换棋子位置。",
       "rarity": "uncommon",
       "icon": "swap",
-      "timing": "own_turn",
+      "timing": "pre_roll",
+      "tags": ["attack", "movement"],
       "needs_target": "player",
       "effect": {"kind": "swap_position"},
-      "ai_weight": 0.5
+      "ai_weight": 0.55,
+      "shop_price": 1400
     },
     {
       "id": "card_rob",
@@ -52,10 +60,12 @@
       "description": "从指定玩家手中抢走一笔现金。",
       "rarity": "uncommon",
       "icon": "hand",
-      "timing": "own_turn",
+      "timing": "pre_roll",
+      "tags": ["attack", "economy"],
       "needs_target": "player",
       "effect": {"kind": "steal", "amount": 900},
-      "ai_weight": 0.65
+      "ai_weight": 0.7,
+      "shop_price": 1300
     },
     {
       "id": "card_shield",
@@ -63,21 +73,25 @@
       "description": "三回合内免疫其他玩家的卡牌效果与抢夺。",
       "rarity": "uncommon",
       "icon": "guard",
-      "timing": "own_turn",
+      "timing": "pre_roll",
+      "tags": ["defense"],
       "needs_target": null,
       "effect": {"kind": "status", "status": "protected", "duration": 3},
-      "ai_weight": 0.55
+      "ai_weight": 0.6,
+      "shop_price": 1500
     },
     {
       "id": "card_stay",
       "name": "停留卡",
-      "description": "指定一名对手，其下一回合掷骰后被强制停留一次。",
+      "description": "指定一名对手，其下一回合被强制跳过。",
       "rarity": "uncommon",
       "icon": "anchor",
-      "timing": "own_turn",
+      "timing": "pre_roll",
+      "tags": ["attack"],
       "needs_target": "player",
       "effect": {"kind": "apply_status_to_target", "status": "skip_turn", "duration": 1},
-      "ai_weight": 0.6
+      "ai_weight": 0.6,
+      "shop_price": 1400
     },
     {
       "id": "card_fixed_dice",
@@ -85,10 +99,12 @@
       "description": "指定下一次自己掷出的骰子总点数。",
       "rarity": "rare",
       "icon": "dice",
-      "timing": "own_turn",
+      "timing": "pre_roll",
+      "tags": ["movement", "dice"],
       "needs_target": "dice_value",
       "effect": {"kind": "status", "status": "fixed_dice", "duration": 1},
-      "ai_weight": 0.5
+      "ai_weight": 0.55,
+      "shop_price": 1600
     },
     {
       "id": "card_barrier",
@@ -96,10 +112,12 @@
       "description": "在指定格放置路障，任何经过的玩家都会被迫停下。",
       "rarity": "uncommon",
       "icon": "cone",
-      "timing": "own_turn",
+      "timing": "pre_roll",
+      "tags": ["attack", "board"],
       "needs_target": "tile",
       "effect": {"kind": "place_barrier", "duration": 4},
-      "ai_weight": 0.45
+      "ai_weight": 0.5,
+      "shop_price": 1200
     },
     {
       "id": "card_free_upgrade",
@@ -108,9 +126,11 @@
       "rarity": "uncommon",
       "icon": "hammer",
       "timing": "own_turn",
+      "tags": ["property"],
       "needs_target": "own_property",
       "effect": {"kind": "free_upgrade"},
-      "ai_weight": 0.8
+      "ai_weight": 0.85,
+      "shop_price": 1700
     },
     {
       "id": "card_discount",
@@ -118,10 +138,12 @@
       "description": "获得一次半价购地的机会。",
       "rarity": "uncommon",
       "icon": "tag",
-      "timing": "own_turn",
+      "timing": "pre_roll",
+      "tags": ["property", "economy"],
       "needs_target": null,
       "effect": {"kind": "status", "status": "purchase_discount", "duration": 1, "payload": {"percent": 50}},
-      "ai_weight": 0.7
+      "ai_weight": 0.7,
+      "shop_price": 1300
     },
     {
       "id": "card_cash",
@@ -129,10 +151,129 @@
       "description": "立刻从银行取出应急现金。",
       "rarity": "common",
       "icon": "cash",
-      "timing": "own_turn",
+      "timing": "any_turn",
+      "tags": ["economy"],
       "needs_target": null,
       "effect": {"kind": "gain_money", "amount": 1500},
-      "ai_weight": 0.85
+      "ai_weight": 0.7,
+      "shop_price": 1000
+    },
+    {
+      "id": "card_downgrade",
+      "name": "强制降级卡",
+      "description": "把指定对手的一处地产降一级，打压最贵的地标。",
+      "rarity": "rare",
+      "icon": "hammerdown",
+      "timing": "pre_roll",
+      "tags": ["attack", "property"],
+      "needs_target": "other_property",
+      "effect": {"kind": "downgrade_property"},
+      "ai_weight": 0.65,
+      "shop_price": 2000
+    },
+    {
+      "id": "card_event_immune",
+      "name": "事件免疫卡",
+      "description": "获得一次免疫：下一次机遇或灾难事件对你无效。",
+      "rarity": "uncommon",
+      "icon": "umbrella",
+      "timing": "pre_roll",
+      "tags": ["defense"],
+      "needs_target": null,
+      "effect": {"kind": "status", "status": "event_immune", "duration": 3},
+      "ai_weight": 0.6,
+      "shop_price": 1500
+    },
+    {
+      "id": "card_swap_property",
+      "name": "产权置换卡",
+      "description": "指定对手的一处地产，用自己最便宜的一处地产与它交换。",
+      "rarity": "rare",
+      "icon": "swap2",
+      "timing": "pre_roll",
+      "tags": ["attack", "property"],
+      "needs_target": "other_property",
+      "effect": {"kind": "swap_property"},
+      "ai_weight": 0.6,
+      "shop_price": 2200
+    },
+    {
+      "id": "card_roll_again",
+      "name": "再次行动卡",
+      "description": "本回合结束后立刻再获得一次掷骰机会。",
+      "rarity": "uncommon",
+      "icon": "replay",
+      "timing": "pre_roll",
+      "tags": ["movement"],
+      "needs_target": null,
+      "effect": {"kind": "extra_turn"},
+      "ai_weight": 0.75,
+      "shop_price": 1600
+    },
+    {
+      "id": "card_bail",
+      "name": "保释券",
+      "description": "在看守所中立刻无代价离开（不在看守所时不可使用）。",
+      "rarity": "common",
+      "icon": "key",
+      "timing": "own_turn",
+      "tags": ["utility"],
+      "needs_target": null,
+      "effect": {"kind": "leave_jail"},
+      "ai_weight": 0.9,
+      "shop_price": 900
+    },
+    {
+      "id": "card_clear",
+      "name": "净化卡",
+      "description": "清除自己身上所有的负面状态。",
+      "rarity": "common",
+      "icon": "broom",
+      "timing": "own_turn",
+      "tags": ["defense", "utility"],
+      "needs_target": null,
+      "effect": {"kind": "clear_negative"},
+      "ai_weight": 0.6,
+      "shop_price": 900
+    },
+    {
+      "id": "card_wealth_tax",
+      "name": "财富税卡",
+      "description": "所有对手按现金的 8% 向你缴税。",
+      "rarity": "rare",
+      "icon": "scales",
+      "timing": "pre_roll",
+      "tags": ["attack", "economy"],
+      "needs_target": null,
+      "effect": {"kind": "wealth_tax", "percent": 0.08},
+      "ai_weight": 0.7,
+      "shop_price": 1900
+    },
+    {
+      "id": "card_lucky",
+      "name": "幸运卡",
+      "description": "接下来三回合内，机遇事件的收益翻倍。",
+      "rarity": "uncommon",
+      "icon": "clover",
+      "timing": "pre_roll",
+      "tags": ["economy"],
+      "needs_target": null,
+      "effect": {"kind": "status", "status": "lucky", "duration": 3},
+      "ai_weight": 0.55,
+      "shop_price": 1400
+    },
+    {
+      "id": "card_block",
+      "name": "封锁卡",
+      "description": "指定一名对手，其下一回合不能使用任何道具。",
+      "rarity": "uncommon",
+      "icon": "lock",
+      "timing": "pre_roll",
+      "tags": ["attack"],
+      "needs_target": "player",
+      "effect": {"kind": "apply_status_to_target", "status": "card_blocked", "duration": 1},
+      "ai_weight": 0.6,
+      "shop_price": 1500
     }
   ]
 }

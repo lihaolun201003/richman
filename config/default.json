@@ -53,7 +53,11 @@
     "rent_double_capital_threshold": 0.6,
     "ai_safety_reserve": 2500,
     "max_rounds": 200,
-    "starting_cards": 2
+    "starting_cards": 2,
+    "preset": "standard",
+    "variant": "standard",
+    "shop_base_price": 1200,
+    "shop_hand_size": 3
   },
   "audio": {
     "master_volume": 0.7,
@@ -65,5 +69,37 @@
     "animation_speed": 1.0,
     "font_scale": 1.0,
     "debug_overlay": false
+  },
+  "presets": {
+    "quick": {
+      "name": "快速局",
+      "desc": "初始资金更少、租金成长更快，适合 20 分钟左右打完一局",
+      "starting_money": 10000,
+      "pass_start_bonus": 1500,
+      "max_rounds": 100,
+      "starting_cards": 2,
+      "shop_base_price": 1000,
+      "bonus_pool_base": 1000
+    },
+    "standard": {
+      "name": "标准局",
+      "desc": "默认数值，一局约 30～45 分钟",
+      "starting_money": 15000,
+      "pass_start_bonus": 2000,
+      "max_rounds": 200,
+      "starting_cards": 2,
+      "shop_base_price": 1200,
+      "bonus_pool_base": 1500
+    },
+    "casual": {
+      "name": "休闲局",
+      "desc": "资金更充裕、破产更慢，适合边聊边玩",
+      "starting_money": 22000,
+      "pass_start_bonus": 2500,
+      "max_rounds": 260,
+      "starting_cards": 3,
+      "shop_base_price": 1200,
+      "bonus_pool_base": 2500
+    }
   }
 }

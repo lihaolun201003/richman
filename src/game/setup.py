@@ -8,7 +8,7 @@ import json
 import os
 from typing import Any
 
-from ..utils.paths import data_path
+from ..utils.paths import data_path, default_config_path
 from . import cards as cards_mod
 from . import chance as chance_mod
 from .board import Board
@@ -20,14 +20,50 @@ from .state import GameState
 _DATA_CACHE: dict[str, Any] = {}
 
 
-def default_rules() -> dict[str, Any]:
-    """从 config/default.json 读取 gameplay 配置。"""
-    path = os.path.join(os.path.dirname(data_path()), "config", "default.json")
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            doc = json.load(f)
-        return dict(doc.get("gameplay", {}))
-    except Exception:
+def load_config() -> dict[str, Any]:
+    """读取 config/default.json（带缓存）。"""
+    if "config" not in _DATA_CACHE:
+        path = default_config_path()
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                _DATA_CACHE["config"] = json.load(f)
+        except Exception:
+            _DATA_CACHE["config"] = {}
+    return _DATA_CACHE["config"]
+
+
+def preset_list() -> list[dict[str, Any]]:
+    """返回全部可选预设（给 UI 用）。"""
+    presets = load_config().get("presets") or {}
+    out = []
+    for key, data in presets.items():
+        out.append({
+            "key": key,
+            "name": data.get("name", key),
+            "desc": data.get("desc", ""),
+            "starting_money": data.get("starting_money", 15000),
+            "max_rounds": data.get("max_rounds", 200),
+        })
+    # 保证 standard 在最前
+    out.sort(key=lambda x: (x["key"] != "standard", x["key"]))
+    return out
+
+
+def default_rules(preset: str = "standard") -> dict[str, Any]:
+    """默认规则 = gameplay 配置 + 选中预设的覆盖值。"""
+    doc = load_config()
+    rules = dict(doc.get("gameplay", {}))
+    presets = doc.get("presets") or {}
+    chosen = presets.get(preset) or presets.get("standard") or {}
+    for key, value in chosen.items():
+        if key in ("name", "desc"):
+            continue
+        rules[key] = value
+    rules["preset"] = preset if preset in presets else "standard"
+    return rules
+
+
+def _fallback_rules() -> dict[str, Any]:
         return {
             "starting_money": 15000,
             "pass_start_bonus": 2000,
@@ -42,23 +78,73 @@ def default_rules() -> dict[str, Any]:
         }
 
 
+def map_files() -> list[tuple[str, str]]:
+    """返回 [(显示名, 文件名)] —— 扫描 data 目录下所有地图。"""
+    out: list[tuple[str, str]] = []
+    data_dir = data_path()
+    for name in sorted(os.listdir(data_dir)):
+        if not name.endswith(".json"):
+            continue
+        if name == "default_map.json" or name.startswith("map_"):
+            out.append((name, name))
+    return out
+
+
 def load_board(map_file: str = "default_map.json") -> Board:
+    """载入地图。传 'map_seaside.json' 之类的文件名，或地图 id。"""
+    if not map_file.endswith(".json"):
+        map_file = ("default_map.json" if map_file == "city_default"
+                    else f"map_{map_file}.json")
     key = f"board:{map_file}"
     if key not in _DATA_CACHE:
         _DATA_CACHE[key] = Board.load(data_path(map_file))
     return _DATA_CACHE[key]
 
 
-def load_properties() -> tuple[dict[str, Property], dict[str, list[str]], float]:
-    """读取地产定义并生成一份全新的地产实例（owner 为空）。"""
-    props, districts, bonus = load_property_definitions(data_path("properties.json"))
+def available_maps() -> list[dict]:
+    """给 UI 用的地图清单（名称 / 尺寸 / 格数 / 推荐人数 / 文件名）。"""
+    out = []
+    for _fname, filename in map_files():
+        board = load_board(filename)
+        out.append({
+            "file": filename,
+            "id": board.map_id,
+            "name": board.name,
+            "description": board.description,
+            "cols": board.cols,
+            "rows": board.rows,
+            "tile_count": board.tile_count,
+            "recommended": board.recommended,
+            "property_count": len(board.purchasable_tiles()),
+        })
+    return out
+
+
+def load_properties(map_id: str = "city_default") -> tuple[dict[str, Property],
+                                                            dict[str, list[str]], float]:
+    """读取指定地图的地产定义并生成全新的地产实例（owner 为空）。"""
+    with open(data_path("properties.json"), "r", encoding="utf-8") as f:
+        doc = json.load(f)
+    bonus = float(doc.get("district_bonus_multiplier", 2.0))
+    maps = doc.get("maps") or {}
+    entry = maps.get(map_id) or {}
+    if not entry:
+        # 兼容旧格式（单一地图）
+        props_defs = doc.get("properties", [])
+        districts_raw = doc.get("districts", {})
+    else:
+        props_defs = entry.get("properties", [])
+        districts_raw = entry.get("districts", {})
+
     fresh: dict[str, Property] = {}
-    for p in props:
-        fresh[p.id] = Property.from_dict(p.to_dict())
-    district_map: dict[str, list[str]] = {
-        name: [f"p{idx:02d}" for idx in idxs] for name, idxs in districts.items()
+    for p in props_defs:
+        prop = Property.from_dict(p)
+        fresh[prop.id] = prop
+    district_map = {
+        name: [f"p{int(idx):02d}" for idx in idxs]
+        for name, idxs in districts_raw.items()
     }
-    return fresh, district_map, float(bonus)
+    return fresh, district_map, bonus
 
 
 def load_chance_registry() -> chance_mod.ChanceRegistry:
@@ -121,10 +207,11 @@ def create_engine(
     anim_speed: float = 1.0,
     map_file: str = "default_map.json",
     rules_override: dict[str, Any] | None = None,
+    preset: str = "standard",
 ) -> GameEngine:
     """player_specs: [{id, name, character_id, color_id|None, is_ai, is_host}]"""
     board = load_board(map_file)
-    properties, district_map, bonus = load_properties()
+    properties, district_map, bonus = load_properties(board.map_id)
     chance_reg = load_chance_registry()
     card_reg = load_card_registry()
 
@@ -150,9 +237,10 @@ def create_engine(
             )
         )
 
-    rules = default_rules()
+    rules = default_rules(preset)
     if rules_override:
         rules.update(rules_override)
+    rules["_map_file"] = map_file
     rules["_card_ids"] = card_reg.ids()
     rules["_card_names"] = {c.id: c.name for c in card_reg.all()}
     rules["move_tile_sec"] = 0.17

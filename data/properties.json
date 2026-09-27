@@ -1,677 +1,1416 @@
 {
-  "map_id": "city_default",
-  "districts": {
-    "东城片区": [
-      1,
-      2
-    ],
-    "云港湾区": [
-      7,
-      8
-    ],
-    "交通枢纽": [
-      16,
-      32
-    ],
-    "学区": [
-      27,
-      29
-    ],
-    "文创街区": [
-      17,
-      20
-    ],
-    "星河商圈": [
-      4,
-      5
-    ],
-    "未来城": [
-      24,
-      25,
-      35
-    ],
-    "湖景片区": [
-      14,
-      15
-    ],
-    "滨海新区": [
-      30,
-      31
-    ],
-    "金融区": [
-      21,
-      22
-    ],
-    "高新园区": [
-      11,
-      12
-    ]
-  },
   "district_bonus_multiplier": 2,
-  "properties": [
-    {
-      "id": "p01",
-      "tile_index": 1,
-      "name": "晨曦社区",
-      "district": "东城片区",
-      "kind": "PROPERTY",
-      "price": 1200,
-      "max_level": 3,
-      "rent_table": [
-        50,
-        400,
-        950,
-        1750
-      ],
-      "upgrade_costs": [
-        600,
-        950,
-        1450
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
+  "maps": {
+    "city_default": {
+      "districts": {
+        "东城片区": [
+          1,
+          2
+        ],
+        "星河商圈": [
+          4,
+          5
+        ],
+        "云港湾区": [
+          7,
+          8
+        ],
+        "高新园区": [
+          11,
+          12
+        ],
+        "湖景片区": [
+          14,
+          15
+        ],
+        "交通枢纽": [
+          16,
+          32
+        ],
+        "文创街区": [
+          17,
+          20
+        ],
+        "金融区": [
+          21,
+          22
+        ],
+        "未来城": [
+          24,
+          25,
+          35
+        ],
+        "学区": [
+          27,
+          29
+        ],
+        "滨海新区": [
+          30,
+          31
+        ]
+      },
+      "properties": [
+        {
+          "id": "p01",
+          "tile_index": 1,
+          "name": "晨曦社区",
+          "district": "东城片区",
+          "kind": "PROPERTY",
+          "price": 1200,
+          "max_level": 3,
+          "rent_table": [
+            50,
+            400,
+            950,
+            1750
+          ],
+          "upgrade_costs": [
+            600,
+            950,
+            1450
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p02",
+          "tile_index": 2,
+          "name": "晨光苑",
+          "district": "东城片区",
+          "kind": "PROPERTY",
+          "price": 1400,
+          "max_level": 3,
+          "rent_table": [
+            100,
+            500,
+            1100,
+            2050
+          ],
+          "upgrade_costs": [
+            700,
+            1100,
+            1700
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p04",
+          "tile_index": 4,
+          "name": "星河商街",
+          "district": "星河商圈",
+          "kind": "PROPERTY",
+          "price": 1800,
+          "max_level": 3,
+          "rent_table": [
+            100,
+            600,
+            1400,
+            2600
+          ],
+          "upgrade_costs": [
+            900,
+            1450,
+            2150
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p05",
+          "tile_index": 5,
+          "name": "星港百货",
+          "district": "星河商圈",
+          "kind": "PROPERTY",
+          "price": 2000,
+          "max_level": 3,
+          "rent_table": [
+            100,
+            700,
+            1550,
+            2900
+          ],
+          "upgrade_costs": [
+            1000,
+            1600,
+            2400
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p07",
+          "tile_index": 7,
+          "name": "云港码头",
+          "district": "云港湾区",
+          "kind": "PROPERTY",
+          "price": 2200,
+          "max_level": 3,
+          "rent_table": [
+            150,
+            750,
+            1700,
+            3200
+          ],
+          "upgrade_costs": [
+            1100,
+            1750,
+            2650
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p08",
+          "tile_index": 8,
+          "name": "云帆中心",
+          "district": "云港湾区",
+          "kind": "PROPERTY",
+          "price": 2400,
+          "max_level": 3,
+          "rent_table": [
+            150,
+            800,
+            1850,
+            3500
+          ],
+          "upgrade_costs": [
+            1200,
+            1900,
+            2900
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p11",
+          "tile_index": 11,
+          "name": "科技新城",
+          "district": "高新园区",
+          "kind": "PROPERTY",
+          "price": 2600,
+          "max_level": 3,
+          "rent_table": [
+            150,
+            900,
+            2050,
+            3750
+          ],
+          "upgrade_costs": [
+            1300,
+            2100,
+            3100
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p12",
+          "tile_index": 12,
+          "name": "创客大厦",
+          "district": "高新园区",
+          "kind": "PROPERTY",
+          "price": 2800,
+          "max_level": 3,
+          "rent_table": [
+            150,
+            950,
+            2200,
+            4050
+          ],
+          "upgrade_costs": [
+            1400,
+            2250,
+            3350
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p14",
+          "tile_index": 14,
+          "name": "湖畔花园",
+          "district": "湖景片区",
+          "kind": "PROPERTY",
+          "price": 3000,
+          "max_level": 3,
+          "rent_table": [
+            200,
+            1000,
+            2350,
+            4350
+          ],
+          "upgrade_costs": [
+            1500,
+            2400,
+            3600
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p15",
+          "tile_index": 15,
+          "name": "湖滨大道",
+          "district": "湖景片区",
+          "kind": "PROPERTY",
+          "price": 3200,
+          "max_level": 3,
+          "rent_table": [
+            200,
+            1100,
+            2500,
+            4650
+          ],
+          "upgrade_costs": [
+            1600,
+            2550,
+            3850
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p16",
+          "tile_index": 16,
+          "name": "中央车站",
+          "district": "交通枢纽",
+          "kind": "STATION",
+          "price": 3800,
+          "max_level": 3,
+          "rent_table": [
+            300,
+            1650,
+            3800,
+            6850
+          ],
+          "upgrade_costs": [
+            1900,
+            3050,
+            4550
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p17",
+          "tile_index": 17,
+          "name": "创意园区",
+          "district": "文创街区",
+          "kind": "PROPERTY",
+          "price": 3400,
+          "max_level": 3,
+          "rent_table": [
+            200,
+            1150,
+            2650,
+            4950
+          ],
+          "upgrade_costs": [
+            1700,
+            2700,
+            4100
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p20",
+          "tile_index": 20,
+          "name": "艺术街区",
+          "district": "文创街区",
+          "kind": "PROPERTY",
+          "price": 3600,
+          "max_level": 3,
+          "rent_table": [
+            200,
+            1200,
+            2800,
+            5200
+          ],
+          "upgrade_costs": [
+            1800,
+            2900,
+            4300
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p21",
+          "tile_index": 21,
+          "name": "金融中心",
+          "district": "金融区",
+          "kind": "PROPERTY",
+          "price": 4000,
+          "max_level": 3,
+          "rent_table": [
+            250,
+            1350,
+            3100,
+            5800
+          ],
+          "upgrade_costs": [
+            2000,
+            3200,
+            4800
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p22",
+          "tile_index": 22,
+          "name": "银行大厦",
+          "district": "金融区",
+          "kind": "PROPERTY",
+          "price": 4200,
+          "max_level": 3,
+          "rent_table": [
+            250,
+            1450,
+            3300,
+            6100
+          ],
+          "upgrade_costs": [
+            2100,
+            3350,
+            5050
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p24",
+          "tile_index": 24,
+          "name": "未来广场",
+          "district": "未来城",
+          "kind": "PROPERTY",
+          "price": 4400,
+          "max_level": 3,
+          "rent_table": [
+            250,
+            1500,
+            3450,
+            6400
+          ],
+          "upgrade_costs": [
+            2200,
+            3500,
+            5300
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p25",
+          "tile_index": 25,
+          "name": "未来科技馆",
+          "district": "未来城",
+          "kind": "PROPERTY",
+          "price": 4600,
+          "max_level": 3,
+          "rent_table": [
+            300,
+            1550,
+            3600,
+            6650
+          ],
+          "upgrade_costs": [
+            2300,
+            3700,
+            5500
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p27",
+          "tile_index": 27,
+          "name": "大学城",
+          "district": "学区",
+          "kind": "PROPERTY",
+          "price": 3400,
+          "max_level": 3,
+          "rent_table": [
+            200,
+            1150,
+            2650,
+            4950
+          ],
+          "upgrade_costs": [
+            1700,
+            2700,
+            4100
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p29",
+          "tile_index": 29,
+          "name": "实验中学",
+          "district": "学区",
+          "kind": "PROPERTY",
+          "price": 3600,
+          "max_level": 3,
+          "rent_table": [
+            200,
+            1200,
+            2800,
+            5200
+          ],
+          "upgrade_costs": [
+            1800,
+            2900,
+            4300
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p30",
+          "tile_index": 30,
+          "name": "海岸新城",
+          "district": "滨海新区",
+          "kind": "PROPERTY",
+          "price": 4800,
+          "max_level": 3,
+          "rent_table": [
+            300,
+            1650,
+            3750,
+            6950
+          ],
+          "upgrade_costs": [
+            2400,
+            3850,
+            5750
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p31",
+          "tile_index": 31,
+          "name": "海岸度假村",
+          "district": "滨海新区",
+          "kind": "PROPERTY",
+          "price": 5000,
+          "max_level": 3,
+          "rent_table": [
+            300,
+            1700,
+            3900,
+            7250
+          ],
+          "upgrade_costs": [
+            2500,
+            4000,
+            6000
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p32",
+          "tile_index": 32,
+          "name": "国际机场",
+          "district": "交通枢纽",
+          "kind": "STATION",
+          "price": 5500,
+          "max_level": 3,
+          "rent_table": [
+            450,
+            2400,
+            5500,
+            9900
+          ],
+          "upgrade_costs": [
+            2750,
+            4400,
+            6600
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p34",
+          "tile_index": 34,
+          "name": "山景社区",
+          "district": null,
+          "kind": "PROPERTY",
+          "price": 4400,
+          "max_level": 3,
+          "rent_table": [
+            250,
+            1500,
+            3450,
+            6400
+          ],
+          "upgrade_costs": [
+            2200,
+            3500,
+            5300
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p35",
+          "tile_index": 35,
+          "name": "未来港塔",
+          "district": "未来城",
+          "kind": "PROPERTY",
+          "price": 6000,
+          "max_level": 3,
+          "rent_table": [
+            350,
+            2050,
+            4700,
+            8700
+          ],
+          "upgrade_costs": [
+            3000,
+            4800,
+            7200
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        }
       ]
     },
-    {
-      "id": "p02",
-      "tile_index": 2,
-      "name": "晨光苑",
-      "district": "东城片区",
-      "kind": "PROPERTY",
-      "price": 1400,
-      "max_level": 3,
-      "rent_table": [
-        100,
-        500,
-        1100,
-        2050
-      ],
-      "upgrade_costs": [
-        700,
-        1100,
-        1700
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p04",
-      "tile_index": 4,
-      "name": "星河商街",
-      "district": "星河商圈",
-      "kind": "PROPERTY",
-      "price": 1800,
-      "max_level": 3,
-      "rent_table": [
-        100,
-        600,
-        1400,
-        2600
-      ],
-      "upgrade_costs": [
-        900,
-        1450,
-        2150
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p05",
-      "tile_index": 5,
-      "name": "星港百货",
-      "district": "星河商圈",
-      "kind": "PROPERTY",
-      "price": 2000,
-      "max_level": 3,
-      "rent_table": [
-        100,
-        700,
-        1550,
-        2900
-      ],
-      "upgrade_costs": [
-        1000,
-        1600,
-        2400
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p07",
-      "tile_index": 7,
-      "name": "云港码头",
-      "district": "云港湾区",
-      "kind": "PROPERTY",
-      "price": 2200,
-      "max_level": 3,
-      "rent_table": [
-        150,
-        750,
-        1700,
-        3200
-      ],
-      "upgrade_costs": [
-        1100,
-        1750,
-        2650
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p08",
-      "tile_index": 8,
-      "name": "云帆中心",
-      "district": "云港湾区",
-      "kind": "PROPERTY",
-      "price": 2400,
-      "max_level": 3,
-      "rent_table": [
-        150,
-        800,
-        1850,
-        3500
-      ],
-      "upgrade_costs": [
-        1200,
-        1900,
-        2900
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p11",
-      "tile_index": 11,
-      "name": "科技新城",
-      "district": "高新园区",
-      "kind": "PROPERTY",
-      "price": 2600,
-      "max_level": 3,
-      "rent_table": [
-        150,
-        900,
-        2050,
-        3750
-      ],
-      "upgrade_costs": [
-        1300,
-        2100,
-        3100
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p12",
-      "tile_index": 12,
-      "name": "创客大厦",
-      "district": "高新园区",
-      "kind": "PROPERTY",
-      "price": 2800,
-      "max_level": 3,
-      "rent_table": [
-        150,
-        950,
-        2200,
-        4050
-      ],
-      "upgrade_costs": [
-        1400,
-        2250,
-        3350
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p14",
-      "tile_index": 14,
-      "name": "湖畔花园",
-      "district": "湖景片区",
-      "kind": "PROPERTY",
-      "price": 3000,
-      "max_level": 3,
-      "rent_table": [
-        200,
-        1000,
-        2350,
-        4350
-      ],
-      "upgrade_costs": [
-        1500,
-        2400,
-        3600
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p15",
-      "tile_index": 15,
-      "name": "湖滨大道",
-      "district": "湖景片区",
-      "kind": "PROPERTY",
-      "price": 3200,
-      "max_level": 3,
-      "rent_table": [
-        200,
-        1100,
-        2500,
-        4650
-      ],
-      "upgrade_costs": [
-        1600,
-        2550,
-        3850
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p16",
-      "tile_index": 16,
-      "name": "中央车站",
-      "district": "交通枢纽",
-      "kind": "STATION",
-      "price": 3800,
-      "max_level": 3,
-      "rent_table": [
-        300,
-        1650,
-        3800,
-        6850
-      ],
-      "upgrade_costs": [
-        1900,
-        3050,
-        4550
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p17",
-      "tile_index": 17,
-      "name": "创意园区",
-      "district": "文创街区",
-      "kind": "PROPERTY",
-      "price": 3400,
-      "max_level": 3,
-      "rent_table": [
-        200,
-        1150,
-        2650,
-        4950
-      ],
-      "upgrade_costs": [
-        1700,
-        2700,
-        4100
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p20",
-      "tile_index": 20,
-      "name": "艺术街区",
-      "district": "文创街区",
-      "kind": "PROPERTY",
-      "price": 3600,
-      "max_level": 3,
-      "rent_table": [
-        200,
-        1200,
-        2800,
-        5200
-      ],
-      "upgrade_costs": [
-        1800,
-        2900,
-        4300
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p21",
-      "tile_index": 21,
-      "name": "金融中心",
-      "district": "金融区",
-      "kind": "PROPERTY",
-      "price": 4000,
-      "max_level": 3,
-      "rent_table": [
-        250,
-        1350,
-        3100,
-        5800
-      ],
-      "upgrade_costs": [
-        2000,
-        3200,
-        4800
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p22",
-      "tile_index": 22,
-      "name": "银行大厦",
-      "district": "金融区",
-      "kind": "PROPERTY",
-      "price": 4200,
-      "max_level": 3,
-      "rent_table": [
-        250,
-        1450,
-        3300,
-        6100
-      ],
-      "upgrade_costs": [
-        2100,
-        3350,
-        5050
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p24",
-      "tile_index": 24,
-      "name": "未来广场",
-      "district": "未来城",
-      "kind": "PROPERTY",
-      "price": 4400,
-      "max_level": 3,
-      "rent_table": [
-        250,
-        1500,
-        3450,
-        6400
-      ],
-      "upgrade_costs": [
-        2200,
-        3500,
-        5300
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p25",
-      "tile_index": 25,
-      "name": "未来科技馆",
-      "district": "未来城",
-      "kind": "PROPERTY",
-      "price": 4600,
-      "max_level": 3,
-      "rent_table": [
-        300,
-        1550,
-        3600,
-        6650
-      ],
-      "upgrade_costs": [
-        2300,
-        3700,
-        5500
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p27",
-      "tile_index": 27,
-      "name": "大学城",
-      "district": "学区",
-      "kind": "PROPERTY",
-      "price": 3400,
-      "max_level": 3,
-      "rent_table": [
-        200,
-        1150,
-        2650,
-        4950
-      ],
-      "upgrade_costs": [
-        1700,
-        2700,
-        4100
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p29",
-      "tile_index": 29,
-      "name": "实验中学",
-      "district": "学区",
-      "kind": "PROPERTY",
-      "price": 3600,
-      "max_level": 3,
-      "rent_table": [
-        200,
-        1200,
-        2800,
-        5200
-      ],
-      "upgrade_costs": [
-        1800,
-        2900,
-        4300
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p30",
-      "tile_index": 30,
-      "name": "海岸新城",
-      "district": "滨海新区",
-      "kind": "PROPERTY",
-      "price": 4800,
-      "max_level": 3,
-      "rent_table": [
-        300,
-        1650,
-        3750,
-        6950
-      ],
-      "upgrade_costs": [
-        2400,
-        3850,
-        5750
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p31",
-      "tile_index": 31,
-      "name": "海岸度假村",
-      "district": "滨海新区",
-      "kind": "PROPERTY",
-      "price": 5000,
-      "max_level": 3,
-      "rent_table": [
-        300,
-        1700,
-        3900,
-        7250
-      ],
-      "upgrade_costs": [
-        2500,
-        4000,
-        6000
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p32",
-      "tile_index": 32,
-      "name": "国际机场",
-      "district": "交通枢纽",
-      "kind": "STATION",
-      "price": 5500,
-      "max_level": 3,
-      "rent_table": [
-        450,
-        2400,
-        5500,
-        9900
-      ],
-      "upgrade_costs": [
-        2750,
-        4400,
-        6600
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p34",
-      "tile_index": 34,
-      "name": "山景社区",
-      "district": null,
-      "kind": "PROPERTY",
-      "price": 4400,
-      "max_level": 3,
-      "rent_table": [
-        250,
-        1500,
-        3450,
-        6400
-      ],
-      "upgrade_costs": [
-        2200,
-        3500,
-        5300
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
-      ]
-    },
-    {
-      "id": "p35",
-      "tile_index": 35,
-      "name": "未来港塔",
-      "district": "未来城",
-      "kind": "PROPERTY",
-      "price": 6000,
-      "max_level": 3,
-      "rent_table": [
-        350,
-        2050,
-        4700,
-        8700
-      ],
-      "upgrade_costs": [
-        3000,
-        4800,
-        7200
-      ],
-      "level_names": [
-        "空地",
-        "小建筑",
-        "中型建筑",
-        "高级建筑"
+    "seaside": {
+      "districts": {
+        "椰林区": [
+          1,
+          2
+        ],
+        "冲浪区": [
+          4,
+          5
+        ],
+        "海豚湾": [
+          7,
+          8
+        ],
+        "灯塔区": [
+          12,
+          13
+        ],
+        "交通枢纽": [
+          14
+        ],
+        "老港区": [
+          15,
+          16
+        ],
+        "度假区": [
+          18,
+          19
+        ],
+        "游艇区": [
+          22,
+          23
+        ],
+        "养殖区": [
+          25,
+          26
+        ],
+        "观光区": [
+          28,
+          29
+        ],
+        "秘境": [
+          32,
+          33
+        ],
+        "远洋区": [
+          34,
+          35
+        ],
+        "极地": [
+          37,
+          38
+        ],
+        "全景": [
+          39
+        ]
+      },
+      "properties": [
+        {
+          "id": "p01",
+          "tile_index": 1,
+          "name": "椰林小径",
+          "district": "椰林区",
+          "kind": "PROPERTY",
+          "price": 1200,
+          "max_level": 3,
+          "rent_table": [
+            50,
+            400,
+            950,
+            1750
+          ],
+          "upgrade_costs": [
+            600,
+            950,
+            1450
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p02",
+          "tile_index": 2,
+          "name": "贝壳湾",
+          "district": "椰林区",
+          "kind": "PROPERTY",
+          "price": 1400,
+          "max_level": 3,
+          "rent_table": [
+            100,
+            500,
+            1100,
+            2050
+          ],
+          "upgrade_costs": [
+            700,
+            1100,
+            1700
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p04",
+          "tile_index": 4,
+          "name": "冲浪海滩",
+          "district": "冲浪区",
+          "kind": "PROPERTY",
+          "price": 1700,
+          "max_level": 3,
+          "rent_table": [
+            100,
+            600,
+            1350,
+            2450
+          ],
+          "upgrade_costs": [
+            850,
+            1350,
+            2050
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p05",
+          "tile_index": 5,
+          "name": "潜水码头",
+          "district": "冲浪区",
+          "kind": "PROPERTY",
+          "price": 1900,
+          "max_level": 3,
+          "rent_table": [
+            100,
+            650,
+            1500,
+            2750
+          ],
+          "upgrade_costs": [
+            950,
+            1500,
+            2300
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p07",
+          "tile_index": 7,
+          "name": "海豚湾",
+          "district": "海豚湾",
+          "kind": "PROPERTY",
+          "price": 2100,
+          "max_level": 3,
+          "rent_table": [
+            150,
+            700,
+            1650,
+            3050
+          ],
+          "upgrade_costs": [
+            1050,
+            1700,
+            2500
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p08",
+          "tile_index": 8,
+          "name": "水族馆",
+          "district": "海豚湾",
+          "kind": "PROPERTY",
+          "price": 2300,
+          "max_level": 3,
+          "rent_table": [
+            150,
+            800,
+            1800,
+            3350
+          ],
+          "upgrade_costs": [
+            1150,
+            1850,
+            2750
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p12",
+          "tile_index": 12,
+          "name": "灯塔岬",
+          "district": "灯塔区",
+          "kind": "PROPERTY",
+          "price": 2500,
+          "max_level": 3,
+          "rent_table": [
+            150,
+            850,
+            1950,
+            3600
+          ],
+          "upgrade_costs": [
+            1250,
+            2000,
+            3000
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p13",
+          "tile_index": 13,
+          "name": "观景台",
+          "district": "灯塔区",
+          "kind": "PROPERTY",
+          "price": 2700,
+          "max_level": 3,
+          "rent_table": [
+            150,
+            900,
+            2100,
+            3900
+          ],
+          "upgrade_costs": [
+            1350,
+            2150,
+            3250
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p14",
+          "tile_index": 14,
+          "name": "渡轮码头",
+          "district": "交通枢纽",
+          "kind": "STATION",
+          "price": 3600,
+          "max_level": 3,
+          "rent_table": [
+            300,
+            1600,
+            3600,
+            6500
+          ],
+          "upgrade_costs": [
+            1800,
+            2900,
+            4300
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p15",
+          "tile_index": 15,
+          "name": "海鲜市场",
+          "district": "老港区",
+          "kind": "PROPERTY",
+          "price": 2900,
+          "max_level": 3,
+          "rent_table": [
+            150,
+            1000,
+            2250,
+            4200
+          ],
+          "upgrade_costs": [
+            1450,
+            2300,
+            3500
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p16",
+          "tile_index": 16,
+          "name": "码头仓库",
+          "district": "老港区",
+          "kind": "PROPERTY",
+          "price": 3100,
+          "max_level": 3,
+          "rent_table": [
+            200,
+            1050,
+            2400,
+            4500
+          ],
+          "upgrade_costs": [
+            1550,
+            2500,
+            3700
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p18",
+          "tile_index": 18,
+          "name": "珊瑚酒店",
+          "district": "度假区",
+          "kind": "PROPERTY",
+          "price": 3300,
+          "max_level": 3,
+          "rent_table": [
+            200,
+            1100,
+            2550,
+            4800
+          ],
+          "upgrade_costs": [
+            1650,
+            2650,
+            3950
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p19",
+          "tile_index": 19,
+          "name": "沙滩别墅",
+          "district": "度假区",
+          "kind": "PROPERTY",
+          "price": 3500,
+          "max_level": 3,
+          "rent_table": [
+            200,
+            1200,
+            2750,
+            5100
+          ],
+          "upgrade_costs": [
+            1750,
+            2800,
+            4200
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p22",
+          "tile_index": 22,
+          "name": "游艇会所",
+          "district": "游艇区",
+          "kind": "PROPERTY",
+          "price": 3700,
+          "max_level": 3,
+          "rent_table": [
+            200,
+            1250,
+            2900,
+            5350
+          ],
+          "upgrade_costs": [
+            1850,
+            2950,
+            4450
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p23",
+          "tile_index": 23,
+          "name": "海景公寓",
+          "district": "游艇区",
+          "kind": "PROPERTY",
+          "price": 3900,
+          "max_level": 3,
+          "rent_table": [
+            250,
+            1350,
+            3050,
+            5650
+          ],
+          "upgrade_costs": [
+            1950,
+            3100,
+            4700
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p25",
+          "tile_index": 25,
+          "name": "珍珠养殖场",
+          "district": "养殖区",
+          "kind": "PROPERTY",
+          "price": 4100,
+          "max_level": 3,
+          "rent_table": [
+            250,
+            1400,
+            3200,
+            5950
+          ],
+          "upgrade_costs": [
+            2050,
+            3300,
+            4900
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p26",
+          "tile_index": 26,
+          "name": "海藻农场",
+          "district": "养殖区",
+          "kind": "PROPERTY",
+          "price": 4300,
+          "max_level": 3,
+          "rent_table": [
+            250,
+            1450,
+            3350,
+            6250
+          ],
+          "upgrade_costs": [
+            2150,
+            3450,
+            5150
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p28",
+          "tile_index": 28,
+          "name": "缆车站",
+          "district": "观光区",
+          "kind": "PROPERTY",
+          "price": 3500,
+          "max_level": 3,
+          "rent_table": [
+            200,
+            1200,
+            2750,
+            5100
+          ],
+          "upgrade_costs": [
+            1750,
+            2800,
+            4200
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p29",
+          "tile_index": 29,
+          "name": "悬崖餐厅",
+          "district": "观光区",
+          "kind": "PROPERTY",
+          "price": 3900,
+          "max_level": 3,
+          "rent_table": [
+            250,
+            1350,
+            3050,
+            5650
+          ],
+          "upgrade_costs": [
+            1950,
+            3100,
+            4700
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p32",
+          "tile_index": 32,
+          "name": "无人岛",
+          "district": "秘境",
+          "kind": "PROPERTY",
+          "price": 4500,
+          "max_level": 3,
+          "rent_table": [
+            250,
+            1550,
+            3500,
+            6500
+          ],
+          "upgrade_costs": [
+            2250,
+            3600,
+            5400
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p33",
+          "tile_index": 33,
+          "name": "海蚀洞",
+          "district": "秘境",
+          "kind": "PROPERTY",
+          "price": 4700,
+          "max_level": 3,
+          "rent_table": [
+            300,
+            1600,
+            3650,
+            6800
+          ],
+          "upgrade_costs": [
+            2350,
+            3750,
+            5650
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p34",
+          "tile_index": 34,
+          "name": "远洋邮轮",
+          "district": "远洋区",
+          "kind": "PROPERTY",
+          "price": 4900,
+          "max_level": 3,
+          "rent_table": [
+            300,
+            1650,
+            3800,
+            7100
+          ],
+          "upgrade_costs": [
+            2450,
+            3900,
+            5900
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p35",
+          "tile_index": 35,
+          "name": "海底餐厅",
+          "district": "远洋区",
+          "kind": "PROPERTY",
+          "price": 5100,
+          "max_level": 3,
+          "rent_table": [
+            300,
+            1750,
+            4000,
+            7400
+          ],
+          "upgrade_costs": [
+            2550,
+            4100,
+            6100
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p37",
+          "tile_index": 37,
+          "name": "极地馆",
+          "district": "极地",
+          "kind": "PROPERTY",
+          "price": 5300,
+          "max_level": 3,
+          "rent_table": [
+            300,
+            1800,
+            4150,
+            7700
+          ],
+          "upgrade_costs": [
+            2650,
+            4250,
+            6350
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p38",
+          "tile_index": 38,
+          "name": "冰川酒店",
+          "district": "极地",
+          "kind": "PROPERTY",
+          "price": 5600,
+          "max_level": 3,
+          "rent_table": [
+            350,
+            1900,
+            4350,
+            8100
+          ],
+          "upgrade_costs": [
+            2800,
+            4500,
+            6700
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        },
+        {
+          "id": "p39",
+          "tile_index": 39,
+          "name": "海岸旅游塔",
+          "district": "全景",
+          "kind": "PROPERTY",
+          "price": 6200,
+          "max_level": 3,
+          "rent_table": [
+            350,
+            2100,
+            4850,
+            9000
+          ],
+          "upgrade_costs": [
+            3100,
+            4950,
+            7450
+          ],
+          "level_names": [
+            "空地",
+            "小建筑",
+            "中型建筑",
+            "高级建筑"
+          ]
+        }
       ]
     }
-  ]
+  }
 }

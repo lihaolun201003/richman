@@ -306,9 +306,17 @@ class GameOverDialog(Modal):
             pygame.draw.circle(surface, color, (table_x + 8, y + 14), 9)
 
             stats = row.get("stats") or {}
+            titles = row.get("titles") or []
+            name_text = row["name"]
+            if highlight:
+                name_text += "（冠军）"
+            elif row["bankrupt"]:
+                name_text += "（已破产）"
+            if titles:
+                name_text += " · " + "、".join(titles)
             values = [
                 f"{row['rank']}",
-                row["name"] + ("（冠军）" if highlight else ("（已破产）" if row["bankrupt"] else "")),
+                name_text,
                 f"{row['money']:,}",
                 f"{row['property_count']}",
                 f"{row['property_value']:,}",
@@ -316,13 +324,15 @@ class GameOverDialog(Modal):
             ]
             for i, text in enumerate(values):
                 color_name = "text" if i != 4 else "accent"
-                theme.draw_text(surface, text, fonts.small(),
+                theme.draw_text(surface, theme.truncate(text, fonts.small(),
+                                                        (col[4] - col[3]) if i == 3 else 260),
+                                fonts.small(),
                                 theme.color(color_name) if not row["bankrupt"] else theme.color("text_mute"),
                                 (table_x + col[i], y + 4))
             y += 44
 
         # 汇总统计
-        sy = y + 8
+        sy = y + 6
         summary = (
             f"购地 {self.stats.get('total_bought', 0)} 次 · "
             f"升级 {self.stats.get('total_upgraded', 0)} 次 · "
@@ -331,7 +341,18 @@ class GameOverDialog(Modal):
             f"经过起点 {self.stats.get('total_start_passes', 0)} 次"
         )
         theme.draw_text(surface, summary, fonts.small(), theme.color("text_dim"),
-                        (rect.centerx, sy + 10), anchor="midtop")
+                        (rect.centerx, sy), anchor="midtop")
+        # 全场资金流：钱主要从哪来、往哪去
+        flow = self.stats.get("flow") or {}
+        if flow:
+            inc = "、".join(f"{k} {v:,}" for k, v in list(flow.get("income", {}).items())[:3])
+            exp = "、".join(f"{k} {v:,}" for k, v in list(flow.get("expense", {}).items())[:3])
+            theme.draw_text(surface, f"全场收入主要来自：{inc}", fonts.tiny(),
+                            theme.color("text_mute"), (rect.centerx, sy + 22),
+                            anchor="midtop")
+            theme.draw_text(surface, f"全场支出主要在：{exp}", fonts.tiny(),
+                            theme.color("text_mute"), (rect.centerx, sy + 40),
+                            anchor="midtop")
 
         for button in self.buttons:
             button.draw(surface, fonts)
@@ -480,3 +501,149 @@ class MessageDialog(Modal):
                            pygame.Rect(rect.x + 34, rect.y + 92, rect.width - 68, 130))
         for button in self.buttons:
             button.draw(surface, fonts)
+
+
+# ==================================================================== 商店
+
+class ShopDialog(Modal):
+    """商店：以卡片形式展示可购买的道具。"""
+
+    def __init__(
+        self,
+        tile_name: str,
+        offers: list[dict],
+        player_money: int,
+        on_buy: Callable[[str], None],
+        on_leave: Callable[[], None],
+        inventory: int = 0,
+        inventory_limit: int = 5,
+        price_of: Callable[[str], int] | None = None,
+    ) -> None:
+        super().__init__()
+        self.dismissable = False
+        self.tile_name = tile_name
+        self.offers = offers
+        self.player_money = player_money
+        self.on_buy = on_buy
+        self.on_leave = on_leave
+        self.inventory = inventory
+        self.inventory_limit = inventory_limit
+        self.price_of = price_of or (lambda cid: 0)
+
+        n = max(1, len(offers))
+        width = min(1180, 240 + n * 300)
+        self.rect = pygame.Rect(0, 0, width, 470)
+        self.rect.center = (SCREEN_W // 2, SCREEN_H // 2)
+        self.buttons = [Button(
+            pygame.Rect(self.rect.centerx - 130, self.rect.bottom - 74, 260, 52),
+            "不买了", on_click=self._leave, style="ghost")]
+        self._card_rects: list[pygame.Rect] = []
+        self._layout()
+
+    def _layout(self) -> None:
+        n = max(1, len(self.offers))
+        gap = 18
+        w = (self.rect.width - 60 - gap * (n - 1)) // n
+        h = 230
+        self._card_rects = []
+        for i in range(n):
+            self._card_rects.append(pygame.Rect(
+                self.rect.x + 30 + i * (w + gap), self.rect.y + 116, w, h))
+
+    def _leave(self) -> None:
+        self.close()
+        self.on_leave()
+
+    def on_key(self, key: int) -> None:
+        if key == pygame.K_ESCAPE:
+            self._leave()
+        elif pygame.K_1 <= key <= pygame.K_9:
+            idx = key - pygame.K_1
+            if idx < len(self.offers) and self._can_buy(self.offers[idx]):
+                self._buy(self.offers[idx]["id"])
+
+    def _can_buy(self, offer: dict) -> bool:
+        if self.inventory >= self.inventory_limit:
+            return False
+        return self.player_money >= self.price_of(offer["id"])
+
+    def _buy(self, card_id: str) -> None:
+        self.close()
+        self.on_buy(card_id)
+
+    def handle_event(self, event: pygame.event.Event) -> bool:
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for rect, offer in zip(self._card_rects, self.offers):
+                if rect.collidepoint(event.pos):
+                    if self._can_buy(offer):
+                        self._buy(offer["id"])
+                    return True
+        for button in self.buttons:
+            if button.handle_event(event):
+                return True
+        if event.type == pygame.KEYDOWN:
+            self.on_key(event.key)
+        return True
+
+    def draw(self, surface: pygame.Surface, fonts: theme.FontManager) -> None:
+        self._draw_scrim(surface)
+        rect = self._panel(surface, self.rect)
+
+        theme.rounded_rect(surface, pygame.Rect(rect.x, rect.y, rect.width, 8),
+                           theme.color("accent"), radius=4)
+        theme.draw_text(surface, f"商 店 · {self.tile_name}", fonts.h1(),
+                        theme.color("text"), (rect.centerx, rect.y + 26), anchor="midtop")
+        theme.draw_text(surface,
+                        f"你的现金 {self.player_money:,}   道具 {self.inventory}/{self.inventory_limit}"
+                        f"    （每个商店限购一张）",
+                        fonts.small(), theme.color("text_dim"),
+                        (rect.centerx, rect.y + 72), anchor="midtop")
+
+        mouse = pygame.mouse.get_pos()
+        for card_rect, offer in zip(self._card_rects, self.offers):
+            self._draw_offer(surface, fonts, card_rect, offer, mouse)
+
+        for button in self.buttons:
+            button.draw(surface, fonts)
+
+    def _draw_offer(self, surface: pygame.Surface, fonts: theme.FontManager,
+                    rect: pygame.Rect, offer: dict, mouse: tuple[int, int]) -> None:
+        can = self._can_buy(offer)
+        hovered = rect.collidepoint(mouse) and can
+        rarity_color = {"common": "info", "uncommon": "accent", "rare": "danger"}.get(
+            offer.get("rarity", "common"), "info")
+        accent = theme.color(rarity_color)
+
+        theme.rounded_rect(surface, rect,
+                           theme.color("panel_hi") if hovered else theme.color("panel"),
+                           radius=14)
+        theme.rounded_rect(surface, rect, None, radius=14,
+                           border=accent if can else theme.color("border_soft"),
+                           border_width=2 if hovered else 1)
+        theme.rounded_rect(surface, pygame.Rect(rect.x, rect.y, rect.width, 6),
+                           accent, radius=3)
+
+        theme.draw_text(surface, offer["name"], fonts.h3(), theme.color("text"),
+                        (rect.x + 16, rect.y + 18))
+        theme.draw_wrapped(surface, offer.get("description", ""), fonts.small(),
+                           theme.color("text_dim"),
+                           pygame.Rect(rect.x + 16, rect.y + 50, rect.width - 32, 96))
+
+        timing = offer.get("timing_label", "")
+        if timing:
+            theme.draw_text(surface, timing, fonts.micro(), theme.color("text_mute"),
+                            (rect.x + 16, rect.bottom - 62))
+
+        price = self.price_of(offer["id"])
+        price_color = "accent" if can else "danger"
+        theme.draw_text(surface, f"{price:,}", fonts.h2(), theme.color(price_color),
+                        (rect.x + 16, rect.bottom - 40))
+
+        if not can:
+            reason = "道具已满" if self.inventory >= self.inventory_limit else "现金不足"
+            theme.draw_text(surface, reason, fonts.small(), theme.color("danger"),
+                            (rect.right - 16, rect.bottom - 34), anchor="topright")
+        else:
+            theme.draw_text(surface, "点击购买", fonts.small(),
+                            theme.color("accent" if hovered else "text_mute"),
+                            (rect.right - 16, rect.bottom - 34), anchor="topright")

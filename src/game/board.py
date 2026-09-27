@@ -76,16 +76,45 @@ class Tile:
 
 
 class Board:
-    """环形棋盘。格子按 index 顺时针排列，末格的下一个是第 0 格。"""
+    """环形棋盘。格子按 index 顺时针排列，末格的下一个是第 0 格。
 
-    def __init__(self, map_id: str, name: str, tiles: list[Tile]) -> None:
+    网格尺寸与四角索引来自地图数据，因此任何满足「环形路径」的布局都能直接用，
+    渲染层不需要为每张地图写代码。
+    """
+
+    def __init__(self, map_id: str, name: str, tiles: list[Tile],
+                 cols: int = 0, rows: int = 0,
+                 corners: list[int] | None = None,
+                 description: str = "", recommended: str = "") -> None:
         if not tiles:
             raise ValueError("地图必须至少包含一个格子")
         self.map_id = map_id
         self.name = name
+        self.description = description
+        self.recommended = recommended
         self.tiles: list[Tile] = sorted(tiles, key=lambda t: t.index)
         self.tile_count = len(self.tiles)
+        self.cols = int(cols) if cols else self._guess_cols()
+        self.rows = int(rows) if rows else 2 + max(1, (self.tile_count - 2 * self.cols) // 2)
+        self.corners = list(corners) if corners else [0, self.cols - 1,
+                                                      self.cols + self.rows - 2,
+                                                      2 * self.cols + self.rows - 3]
         self._verify_indices()
+
+    def _guess_cols(self) -> int:
+        """没有显式声明网格时，按「周长 = 2*cols + 2*(rows-2)」反推一个合理值。"""
+        n = self.tile_count
+        best, best_diff = 11, 10 ** 9
+        for cols in range(4, 24):
+            rows = (n - 2 * cols) // 2 + 2
+            if rows < 4:
+                continue
+            if 2 * cols + 2 * (rows - 2) != n:
+                continue
+            diff = abs(cols / max(1, rows) - 1.25)
+            if diff < best_diff:
+                best, best_diff = cols, diff
+        return best
 
     def _verify_indices(self) -> None:
         expect = list(range(self.tile_count))
@@ -166,13 +195,26 @@ class Board:
             "map_id": self.map_id,
             "name": self.name,
             "tile_count": self.tile_count,
+            "cols": self.cols,
+            "rows": self.rows,
+            "corners": list(self.corners),
+            "description": self.description,
+            "recommended_players": self.recommended,
             "tiles": [t.to_dict() for t in self.tiles],
         }
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Board":
         tiles = [Tile.from_dict(t) for t in d["tiles"]]
-        return cls(d.get("map_id", "unknown"), d.get("name", "未命名地图"), tiles)
+        return cls(
+            d.get("map_id") or d.get("id") or "unknown",
+            d.get("name", "未命名地图"), tiles,
+            cols=int(d.get("cols", 0) or 0),
+            rows=int(d.get("rows", 0) or 0),
+            corners=list(d.get("corners") or []) or None,
+            description=d.get("description", ""),
+            recommended=d.get("recommended_players", ""),
+        )
 
     @classmethod
     def load(cls, path: str) -> "Board":

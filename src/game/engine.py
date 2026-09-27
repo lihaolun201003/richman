@@ -14,7 +14,9 @@ import uuid
 from typing import Any, Callable
 
 from ..utils.logging_setup import get_logger
-from . import bankruptcy, cards as cards_mod, chance as chance_mod, economy, jail, movement, victory
+from . import bankruptcy, cards as cards_mod, chance as chance_mod, economy, jail, modifiers as mods, movement, victory
+from .format import money_delta
+from .ledger import Reason
 from .commands import (
     Command,
     CommandResult,
@@ -65,6 +67,7 @@ from .player import (
     STATUS_PURCHASE_DISCOUNT,
     STATUS_RENT_DISCOUNT_ONCE,
     STATUS_RENT_DOUBLE_ONCE,
+    STATUS_LABELS,
     STATUS_SKIP_TURN,
     STATUS_UPGRADE_DISCOUNT,
     StatusEffect,
@@ -117,9 +120,10 @@ class GameEngine:
         for p in st.players:
             p.position = start_index
             base = int(rules.get("starting_money", 15000))
-            bonus = int(p.perk_value("start_money_bonus"))
-            p.money = base + bonus
+            bonus = int(mods.perk_special(p.perk, "start_money_bonus"))
+            p.money = 0
             p.stats = {k: 0 for k in p.stats}
+            st.ledger.gain(st, p, base + bonus, Reason.INITIAL_MONEY, "开局资金")
             p.stats["start_money"] = p.money
             p.status_effects.clear()
         st.bonus_pool = int(rules.get("bonus_pool_base", 0))
@@ -232,11 +236,24 @@ class GameEngine:
         if st.pending_decision is not None:
             return self._answer_decision(cmd, player)
 
-        # 无决策时的合法命令：投降 / 使用道具（自己回合）
+        # 无决策时的合法命令：投降 / 使用道具 / 资产操作（自己回合）
         if cmd.type == CommandType.SURRENDER:
             return self._surrender(player)
         if cmd.type == CommandType.USE_CARD:
             return self._use_card_command(player, cmd)
+        if cmd.type in (CommandType.MORTGAGE_PROPERTY, CommandType.REDEEM_PROPERTY,
+                        CommandType.SELL_PROPERTY, CommandType.DOWNGRADE_PROPERTY):
+            allowed, why = self._asset_action_allowed(player)
+            if not allowed:
+                return CommandResult(False, why)
+            pid = cmd.payload.get("property_id")
+            if cmd.type == CommandType.MORTGAGE_PROPERTY:
+                return self._do_mortgage(player, pid)
+            if cmd.type == CommandType.REDEEM_PROPERTY:
+                return self._do_redeem(player, pid)
+            if cmd.type == CommandType.DOWNGRADE_PROPERTY:
+                return self._do_downgrade(player, pid)
+            return self._do_sell(player, pid)
         if cmd.type == CommandType.END_TURN:
             if st.current_player_id == player.id and st.phase in (GamePhase.WAIT_ROLL, GamePhase.WAIT_DECISION):
                 self._enter_phase(GamePhase.TURN_END)
@@ -292,7 +309,18 @@ class GameEngine:
             return CommandResult(False, f"当前问题不接受命令：{cmd.type}")
         if not match.enabled:
             return CommandResult(False, "该选项当前不可用")
-        return self._dispatch_decision_option(cmd, decision)
+        # 执行时要用「合并后」的选项 payload：
+        # 例如债务面板只发 property_id，而 debt 标记来自选项本身；
+        # 若丢掉它，引擎就不知道这次操作需要刷新债务决策。
+        merged = Command(
+            ctype=match.command_type,
+            player_id=cmd.player_id,
+            payload=dict(match.payload),
+            command_id=cmd.command_id,
+            client_revision=cmd.client_revision,
+            decision_id=cmd.decision_id,
+        )
+        return self._dispatch_decision_option(merged, decision)
 
     def _dispatch_decision_option(self, cmd: Command, decision: PendingDecision) -> CommandResult:
         """执行选项对应的实际逻辑。
@@ -309,7 +337,12 @@ class GameEngine:
                 st.pending_decision = decision
             raise
         if not result.ok and st.pending_decision is None:
-            st.pending_decision = decision
+            # 债务处理中失败（例如那块地刚被抵押）时，
+            # 不能恢复已经过期的旧选项，应该按最新状态重新生成。
+            if st.debt is not None:
+                self._refresh_debt_decision()
+            if st.pending_decision is None:
+                st.pending_decision = decision
         return result
 
     def _execute_decision_option(self, cmd: Command, decision: PendingDecision) -> CommandResult:
@@ -358,6 +391,24 @@ class GameEngine:
                 free=bool(cmd.payload.get("free")),
             )
 
+        # ---- 资产操作（自己回合内随时可用；债务流程中也可用）
+        if ctype == CommandType.MORTGAGE_PROPERTY:
+            return self._do_mortgage(actor, cmd.payload.get("property_id"),
+                                     bool(cmd.payload.get("debt")))
+        if ctype == CommandType.REDEEM_PROPERTY:
+            return self._do_redeem(actor, cmd.payload.get("property_id"))
+        if ctype == CommandType.DOWNGRADE_PROPERTY:
+            return self._do_downgrade(actor, cmd.payload.get("property_id"),
+                                      bool(cmd.payload.get("debt")))
+
+        # ---- 商店
+        if ctype == CommandType.BUY_SHOP_CARD:
+            return self._do_buy_shop_card(actor, cmd.payload.get("card_id"))
+        if ctype == CommandType.LEAVE_SHOP:
+            st.shop = None
+            self._enter_phase(GamePhase.TURN_END)
+            return CommandResult(True)
+
         # ---- 道具目标（自己回合使用道具；决策保留给引擎重新询问）
         if ctype == CommandType.USE_CARD:
             st.pending_decision = decision
@@ -372,10 +423,31 @@ class GameEngine:
             return CommandResult(True)
 
         if ctype == CommandType.SELL_ASSET:
+            if st.debt is not None:
+                result = self._do_sell(actor, cmd.payload.get("property_id"))
+                if result.ok:
+                    self._after_debt_action()
+                else:
+                    st.pending_decision = decision
+                return result
             st.pending_decision = decision
             return self._do_sell(actor, cmd.payload.get("property_id"))
 
         if ctype == CommandType.DECLARE_BANKRUPTCY:
+            if st.debt is not None and st.debt.get("player_id") == actor.id:
+                # 玩家主动放弃自救 —— 按破产处理，资产交给债权人
+                creditor_id = st.debt.get("creditor_id")
+                reason = str(st.debt.get("reason", "债务"))
+                amount = int(st.debt.get("amount", 0))
+                creditor = st.player(creditor_id) if creditor_id else None
+                out = bankruptcy.PaymentOutcome()
+                st.debt = None
+                bankruptcy._declare_bankrupt(st, actor, creditor, out, amount, reason)
+                st.log(EventType.INFO, f"{actor.name} 放弃自救，宣告破产", actor.id,
+                       {"alert": True})
+                self._check_game_over()
+                self._enter_phase(GamePhase.TURN_END)
+                return CommandResult(True)
             self._enter_phase(GamePhase.TURN_END)
             return CommandResult(True)
 
@@ -393,6 +465,7 @@ class GameEngine:
         st = self.state
         action = str(payload.get("action", decision.context.get("action", "")))
         amount = int(payload.get("amount", decision.context.get("amount", 0)))
+        reason = str(payload.get("reason", decision.context.get("reason", "债务催收")))
 
         if st.pending_effect is None:
             self._enter_phase(GamePhase.TURN_END)
@@ -415,9 +488,7 @@ class GameEngine:
             if actual <= 0:
                 st.log(EventType.INFO, f"{target.name} 没有现金，{player.name} 索要失败", player.id)
             else:
-                target.money -= actual
-                player.money += actual
-                player.stats["money_earned"] = player.stats.get("money_earned", 0) + actual
+                st.ledger.transfer(st, target, player, actual, Reason.CHANCE, reason)
                 st.log(EventType.INFO,
                        f"{player.name} 向 {target.name} 索取 {money(actual)}", player.id,
                        {"amount": actual, "target": target.id,
@@ -544,7 +615,6 @@ class GameEngine:
 
     def _end_turn(self) -> None:
         st = self.state
-        cur = st.current_player
 
         # 回合结束前统一清算负现金（机遇事件可能把玩家扣成负数）
         for p in st.active_players():
@@ -552,6 +622,16 @@ class GameEngine:
                 break
         if st.game_over:
             return
+        if st.debt is not None:
+            # 有玩家正在处理债务，等他自己解决完再继续回合收尾
+            st.debt["resume"] = "turn_end_continue"
+            return
+
+        self._finish_turn_end()
+
+    def _finish_turn_end(self) -> None:
+        st = self.state
+        cur = st.current_player
 
         if cur is not None:
             expired = cur.tick_statuses()
@@ -710,11 +790,11 @@ class GameEngine:
         passed = any(st.board.tile(i).type is TileType.START for i in path[:-1]) or destination_is_start
         if not passed:
             return
-        amount = int(st.rules.get("pass_start_bonus", 2000))
-        amount += int(player.perk_value("pass_start_bonus"))
-        player.money += amount
+        base = int(st.rules.get("pass_start_bonus", 2000))
+        amount, _ = mods.resolve(player, mods.Hook.START_REWARD, base)
+        amount = max(0, amount)
+        st.ledger.gain(st, player, amount, Reason.START_REWARD, "经过起点")
         player.stats["start_passes"] = player.stats.get("start_passes", 0) + 1
-        player.stats["money_earned"] = player.stats.get("money_earned", 0) + amount
         text = msg_land_start(player.name, amount) if destination_is_start else msg_pass_start(player.name, amount)
         st.log(EventType.PASSED_START, text, player.id, {"amount": amount, "float": True})
 
@@ -733,8 +813,14 @@ class GameEngine:
         ttype = tile.type
         if ttype is TileType.START:
             self._enter_phase(GamePhase.TURN_END)
-        elif ttype is TileType.CHANCE:
-            self._draw_chance(cur)
+        elif ttype in (TileType.CHANCE, TileType.FORTUNE, TileType.DISASTER):
+            polarity = {
+                TileType.FORTUNE: chance_mod.Polarity.FORTUNE,
+                TileType.DISASTER: chance_mod.Polarity.DISASTER,
+            }.get(ttype)
+            self._draw_chance(cur, tile.name, polarity)
+        elif ttype is TileType.SHOP:
+            self._start_shop(cur, tile)
         elif ttype is TileType.TAX:
             self._resolve_tax(cur, tile)
         elif ttype in (TileType.PARK, TileType.BONUS):
@@ -857,8 +943,10 @@ class GameEngine:
         if detail.get("halved"):
             payer.consume_status(STATUS_RENT_DISCOUNT_ONCE)
 
-        before = payer.money
-        out = bankruptcy.pay(st, payer, amount, creditor_id=owner.id, reason=f"{prop.name} 租金")
+        out = self._charge(payer, amount, owner.id, f"{prop.name} 租金",
+                           Reason.RENT)
+        if out.deferred:
+            return                      # 交给债务处理流程，付完后会回到 TURN_END
         paid = out.paid
         payer.stats["rent_paid"] = payer.stats.get("rent_paid", 0) + paid
         owner.stats["rent_income"] = owner.stats.get("rent_income", 0) + paid
@@ -887,7 +975,9 @@ class GameEngine:
         if amount <= 0:
             self._enter_phase(GamePhase.TURN_END)
             return
-        out = bankruptcy.pay(st, player, amount, creditor_id=None, reason=label)
+        out = self._charge(player, amount, None, label, Reason.TAX)
+        if out.deferred:
+            return
         player.stats["taxes_paid"] = player.stats.get("taxes_paid", 0) + out.paid
         st.log(EventType.TAX_PAID, msg_tax(player.name, label, out.paid), player.id,
                {"amount": out.paid, "label": label, "float": True, "float_target": player.id})
@@ -907,8 +997,7 @@ class GameEngine:
             self._enter_phase(GamePhase.TURN_END)
             return
         st.bonus_pool = 0
-        player.money += amount
-        player.stats["money_earned"] = player.stats.get("money_earned", 0) + amount
+        st.ledger.gain(st, player, amount, Reason.BONUS_POOL, tile.name)
         st.log(EventType.BONUS_POOL_GAINED, msg_pool_gain(player.name, amount), player.id,
                {"amount": amount, "float": True, "float_target": player.id, "alert": True})
         self._enter_phase(GamePhase.TURN_END)
@@ -928,20 +1017,30 @@ class GameEngine:
 
     # ---------------------------------------------------------------- 机遇
 
-    def _draw_chance(self, player) -> None:
+    def _draw_chance(self, player, tile_name: str = "机遇",
+                     polarity: str | None = None) -> None:
         st = self.state
         if st.chance_depth >= 2:
             st.log(EventType.INFO, f"{player.name} 连续触发机遇，本次跳过抽卡", player.id)
             self._enter_phase(GamePhase.TURN_END)
             return
 
-        card = chance_mod.draw(st, self.chance_registry)
+        # 事件免疫：直接跳过本次抽卡
+        if player.has_status("event_immune"):
+            player.consume_status("event_immune")
+            st.log(EventType.INFO,
+                   f"{player.name} 的「事件免疫」生效，本次 {tile_name} 无效", player.id)
+            self._enter_phase(GamePhase.TURN_END)
+            return
+
+        card = chance_mod.draw(st, self.chance_registry, polarity)
         st.chance_depth += 1
         st.last_chance_id = card.id
         player.stats["chance_events"] = player.stats.get("chance_events", 0) + 1
         st.log(EventType.CHANCE_DRAWN, msg_chance(player.name, card.name), player.id,
                {"card": card.id, "name": card.name, "description": card.description,
-                "rarity": card.rarity, "alert": True})
+                "rarity": card.rarity, "polarity": card.polarity,
+                "tile_name": tile_name, "alert": True})
 
         followups, text = chance_mod.apply_effect(st, self.chance_registry, player, card.effect)
         st.last_chance_text = text
@@ -999,19 +1098,23 @@ class GameEngine:
         self._enter_phase(GamePhase.TURN_END)
 
     def _settle_negative_cash(self, player) -> bool:
-        """负现金 → 走债务流程（变卖资产，仍不足则破产）。返回是否破产。"""
+        """负现金 → 变卖抵债；救不回来时交给玩家自己处理。返回是否中断流程。"""
         st = self.state
         if player.money >= 0 or player.bankrupt:
             return False
-        debt = -player.money
+        shortfall = -player.money
         st.log(EventType.DEBT_STARTED,
-               f"{player.name} 现金不足，需要补足 {money(debt)}", player.id,
-               {"amount": debt, "auto": True})
-        out = bankruptcy.settle_negative(st, player, reason="强制清算")
+               f"{player.name} 现金不足，需要补足 {money(shortfall)}", player.id,
+               {"amount": shortfall, "auto": True})
+        out = bankruptcy.pay(st, player, shortfall, creditor_id=None,
+                             reason="强制清算", category=Reason.BANKRUPT)
         if out.liquidated:
             st.log(EventType.ASSET_LIQUIDATED,
                    f"{player.name} 变卖了 {len(out.liquidated)} 处地产用于抵债", player.id,
                    {"liquidated": [list(x) for x in out.liquidated]})
+        if out.deferred:
+            self._start_debt_resolution(player, shortfall, None, "强制清算")
+            return True
         if out.bankrupt:
             self._check_game_over()
             return True
@@ -1095,7 +1198,9 @@ class GameEngine:
         fee = jail.jail_fee(st, player)
         if player.money < fee and not auto:
             return CommandResult(False, "现金不足以支付保释金")
-        out = bankruptcy.pay(st, player, fee, creditor_id=None, reason="保释金")
+        out = self._charge(player, fee, None, "保释金", Reason.JAIL)
+        if out.deferred:
+            return CommandResult(True)
         jail.release_from_jail(player)
         text = msg_jail_auto_pay(player.name, out.paid) if auto else msg_jail_pay(player.name, out.paid)
         st.log(EventType.JAIL_PAID, text, player.id,
@@ -1117,16 +1222,15 @@ class GameEngine:
         if player.money < price:
             return CommandResult(False, "现金不足")
 
-        player.money -= price
-        player.stats["money_spent"] = player.stats.get("money_spent", 0) + price
+        st.ledger.pay_bank(st, player, price, Reason.PROPERTY_PURCHASE, prop.name)
         prop.assign(player.id)
         player.stats["properties_bought"] = player.stats.get("properties_bought", 0) + 1
 
-        # 消耗折扣券
-        if detail.get("coupon"):
+        # 消耗一次性折扣（角色被动不会进这里，只消耗状态）
+        if detail.get("saved", 0) > 0:
             player.consume_status(STATUS_PURCHASE_DISCOUNT)
 
-        if detail.get("character") or detail.get("coupon"):
+        if detail.get("discounted"):
             text = msg_buy_discount(player.name, prop.name, price, detail["base"])
         else:
             text = msg_buy(player.name, prop.name, price)
@@ -1156,12 +1260,11 @@ class GameEngine:
         if player.money < cost:
             return CommandResult(False, "现金不足")
 
-        player.money -= cost
         if cost:
-            player.stats["money_spent"] = player.stats.get("money_spent", 0) + cost
+            st.ledger.pay_bank(st, player, cost, Reason.PROPERTY_UPGRADE, prop.name)
         prop.upgrade()
         player.stats["properties_upgraded"] = player.stats.get("properties_upgraded", 0) + 1
-        if detail.get("coupon"):
+        if detail.get("saved", 0) > 0:
             player.consume_status(STATUS_UPGRADE_DISCOUNT)
 
         if free:
@@ -1179,13 +1282,301 @@ class GameEngine:
         prop = st.properties.get(str(property_id or ""))
         if prop is None or prop.owner_id != player.id:
             return CommandResult(False, "这不是你的地产")
-        refund = prop.sell_value
+        refund, _ = economy.sell_refund(st, player, prop)
         prop.release()
-        player.money += refund
-        player.stats["money_earned"] = player.stats.get("money_earned", 0) + refund
+        st.ledger.gain(st, player, refund, Reason.PROPERTY_SALE, prop.name)
         st.log(EventType.PROPERTY_SOLD, f"{player.name} 出售「{prop.name}」，回收 {money(refund)}",
                player.id, {"property": prop.id, "amount": refund})
         st.bump()
+        return CommandResult(True)
+
+    # ---------------------------------------------------------------- 收费与债务
+
+    def _charge(self, payer, amount: int, creditor_id, reason: str,
+                category: str | None = None):
+        """统一收费入口。
+
+        能付清就付清；只差一点就自动变卖抵债；连卖带押都救不回来时，
+        转入债务处理流程，把决定权交还给玩家。
+        """
+        st = self.state
+        out = bankruptcy.pay(st, payer, amount, creditor_id=creditor_id,
+                             reason=reason, category=category)
+        if out.deferred:
+            self._start_debt_resolution(payer, amount, creditor_id, reason)
+        return out
+
+    def _start_debt_resolution(self, player, amount: int, creditor_id,
+                               reason: str, category: str | None = None) -> None:
+        """进入债务处理：玩家自己决定抵押 / 出售哪些资产来筹钱。"""
+        st = self.state
+        st.debt = {
+            "player_id": player.id,
+            "amount": int(amount),
+            "creditor_id": creditor_id,
+            "reason": reason,
+            "category": category,
+            "resume": "turn_end",
+        }
+        st.log(EventType.DEBT_STARTED,
+               f"{player.name} 需要支付 {money(amount)}（{reason}），现金不足，请处理资产",
+               player.id, {"alert": True, "amount": amount, "reason": reason})
+        st.decision_timer = 0.0
+        self._refresh_debt_decision()
+
+    def _refresh_debt_decision(self) -> None:
+        """重新生成债务处理的可选项（每做一次资产操作都要重算）。"""
+        st = self.state
+        debt = st.debt
+        if not debt:
+            return
+        player = st.player(debt["player_id"])
+        if player is None:
+            st.debt = None
+            self._enter_phase(GamePhase.TURN_END)
+            return
+        amount = int(debt["amount"])
+
+        if player.money >= amount:
+            self._settle_debt()
+            return
+
+        shortfall = amount - player.money
+        options = []
+        for opt in economy.debt_rescue_options(st, player, shortfall):
+            is_mortgage = opt["action"] == "mortgage"
+            options.append(DecisionOption(
+                opt["action"] + ":" + opt["property_id"],
+                opt["hint"] + "「" + opt["name"] + "」 " + money_delta(opt["amount"]),
+                CommandType.MORTGAGE_PROPERTY if is_mortgage else CommandType.SELL_ASSET,
+                payload={"property_id": opt["property_id"], "debt": True},
+                enabled=opt["amount"] > 0,
+                hint="可筹到 " + money(opt["amount"]),
+            ))
+
+        if options:
+            options.append(DecisionOption(
+                "declare", "放弃抵抗，宣告破产", CommandType.DECLARE_BANKRUPTCY,
+                payload={}, danger=True, hint="资产将交给债权人"))
+        else:
+            options.append(DecisionOption(
+                "declare", "无资产可处置，宣告破产", CommandType.DECLARE_BANKRUPTCY,
+                payload={}, danger=True))
+
+        desc = ("现金：" + money(player.money) + "\n"
+                "欠款：" + money(amount) + "（" + str(debt.get("reason", "欠款")) + "）\n"
+                "仍需筹集：" + money(shortfall) + "\n"
+                "抵押可以保留产权，出售则永久失去。")
+        self._make_decision(
+            player.id, DecisionKind.DEBT_RESOLUTION,
+            "债务处理：还需 " + money(shortfall), options,
+            description=desc,
+            context={"debt": True, "amount": amount, "shortfall": shortfall},
+        )
+        st.set_phase(GamePhase.DEBT_RESOLUTION, 0.0)
+        st.bump()
+
+    def _settle_debt(self) -> None:
+        """债务处理收尾：付清欠款并回到原流程。"""
+        st = self.state
+        debt = st.debt
+        if not debt:
+            return
+        st.debt = None
+        st.pending_decision = None
+        player = st.player(debt["player_id"])
+        resume = debt.get("resume", "turn_end")
+
+        if player is None:
+            self._enter_phase(GamePhase.TURN_END)
+            return
+
+        out = bankruptcy.settle_now(st, player, debt["amount"], debt["creditor_id"],
+                                    debt["reason"], debt.get("category"))
+        st.log(EventType.INFO,
+               f"{player.name} 支付了 {money(out.paid)}（{debt['reason']}）", player.id,
+               {"float": True, "float_target": player.id, "amount": out.paid})
+
+        if self._check_game_over():
+            return
+        if resume == "turn_end_continue":
+            self._finish_turn_end()
+        else:
+            self._enter_phase(GamePhase.TURN_END)
+
+    def _after_debt_action(self) -> None:
+        """资产操作后刷新债务决策。"""
+        if self.state.debt is not None:
+            self._refresh_debt_decision()
+
+    # ---------------------------------------------------------------- 资产操作
+
+    def _asset_action_allowed(self, player) -> tuple[bool, str]:
+        """此刻能否操作自己的资产：自己回合的任意时点，或正在处理自己的债务。"""
+        st = self.state
+        if st.game_over:
+            return False, "游戏已结束"
+        if player.bankrupt:
+            return False, "你已破产退出"
+        if st.debt is not None and st.debt.get("player_id") == player.id:
+            return True, ""
+        if st.current_player_id != player.id:
+            return False, "只能在自己回合管理资产"
+        if st.phase in (GamePhase.ROLLING, GamePhase.MOVING, GamePhase.APPLY_EVENT):
+            return False, "结算进行中，请稍候"
+        pd = st.pending_decision
+        if pd is not None and pd.player_id != player.id:
+            return False, "现在不是你的操作时机"
+        return True, ""
+
+    def _do_mortgage(self, player, property_id, from_debt: bool = False) -> CommandResult:
+        st = self.state
+        prop = st.properties.get(str(property_id or ""))
+        if prop is None:
+            return CommandResult(False, "地产不存在")
+        if prop.owner_id != player.id:
+            return CommandResult(False, "这不是你的地产")
+        if prop.mortgaged:
+            return CommandResult(False, "该地产已经处于抵押状态")
+        if prop.level > 0:
+            return CommandResult(False, "需要先把建筑拆除到空地才能抵押")
+
+        value, _ = economy.mortgage_value(st, player, prop)
+        prop.mortgage()
+        st.ledger.gain(st, player, value, Reason.MORTGAGE, prop.name)
+        st.log(EventType.PROPERTY_MORTGAGED,
+               f"{player.name} 抵押了「{prop.name}」，获得 {money(value)}", player.id,
+               {"property": prop.id, "amount": value,
+                "float": True, "float_target": player.id})
+        st.bump()
+        if from_debt:
+            self._after_debt_action()
+        return CommandResult(True)
+
+    def _do_redeem(self, player, property_id) -> CommandResult:
+        st = self.state
+        prop = st.properties.get(str(property_id or ""))
+        if prop is None:
+            return CommandResult(False, "地产不存在")
+        if prop.owner_id != player.id:
+            return CommandResult(False, "这不是你的地产")
+        if not prop.mortgaged:
+            return CommandResult(False, "该地产未被抵押")
+        if st.debt is not None:
+            return CommandResult(False, "债务处理中不能赎回")
+        cost = economy.redeem_cost(prop)
+        if player.money < cost:
+            return CommandResult(False, "现金不足（需要 " + money(cost) + "）")
+
+        prop.redeem()
+        st.ledger.pay_bank(st, player, cost, Reason.REDEEM, prop.name)
+        st.log(EventType.PROPERTY_UNMORTGAGED,
+               f"{player.name} 赎回了「{prop.name}」，支付 {money(cost)}", player.id,
+               {"property": prop.id, "amount": cost})
+        st.bump()
+        return CommandResult(True)
+
+    def _do_downgrade(self, player, property_id, from_debt: bool = False) -> CommandResult:
+        """拆除一级建筑：返还一半升级费用，常用于腾出空地以便抵押。"""
+        st = self.state
+        prop = st.properties.get(str(property_id or ""))
+        if prop is None:
+            return CommandResult(False, "地产不存在")
+        if prop.owner_id != player.id:
+            return CommandResult(False, "这不是你的地产")
+        if prop.level <= 0:
+            return CommandResult(False, "该地产已经是空地")
+
+        idx = prop.level - 1
+        paid = prop.upgrade_costs[idx] if idx < len(prop.upgrade_costs) else 0
+        refund = int(paid * 0.5)
+        prop.downgrade()
+        if refund:
+            st.ledger.gain(st, player, refund, Reason.PROPERTY_SALE,
+                           f"拆除 {prop.name} 的建筑")
+        st.log(EventType.PROPERTY_SOLD,
+               f"{player.name} 拆除了「{prop.name}」的一级建筑，回收 {money(refund)}",
+               player.id, {"property": prop.id, "amount": refund,
+                           "float": True, "float_target": player.id})
+        st.bump()
+        if from_debt:
+            self._after_debt_action()
+        return CommandResult(True)
+
+    # ---------------------------------------------------------------- 商店
+
+    def _start_shop(self, player, tile) -> None:
+        """商店格：展示若干随机道具，可买 0～1 张。"""
+        st = self.state
+        pool = list(self.card_registry.ids())
+        if not pool:
+            self._enter_phase(GamePhase.TURN_END)
+            return
+        rng = st.next_rng()
+        count = int(st.rules.get("shop_hand_size", 3))
+        picks = []
+        while pool and len(picks) < count:
+            picks.append(pool.pop(rng.randrange(len(pool))))
+        st.shop = {"player_id": player.id, "cards": picks, "bought": None}
+
+        limit = int(st.rules.get("max_cards_per_player", 5))
+        options = []
+        for cid in picks:
+            card = self.card_registry.get(cid)
+            if card is None:
+                continue
+            price = self._shop_price(player, card)
+            problem = ""
+            if len(player.cards) >= limit:
+                problem = "道具已满"
+            elif player.money < price:
+                problem = "现金不足"
+            options.append(DecisionOption(
+                "buy:" + cid, "「" + card.name + "」 " + money_delta(-price),
+                CommandType.BUY_SHOP_CARD, payload={"card_id": cid},
+                enabled=not problem, hint=problem or card.description,
+            ))
+        options.append(DecisionOption("leave", "不买了，离开商店", CommandType.LEAVE_SHOP))
+        self._make_decision(
+            player.id, DecisionKind.SHOP, "商店 · " + tile.name, options,
+            description="每个商店最多购买一张道具卡",
+            context={"shop": True, "cards": picks},
+        )
+        st.set_phase(GamePhase.SHOP, 0.0)
+        st.bump()
+
+    def _shop_price(self, player, card) -> int:
+        base = int(getattr(card, "shop_price", 0) or 0)
+        if base <= 0:
+            base = int(self.state.rules.get("shop_base_price", 1200))
+        final, _ = mods.resolve(player, mods.Hook.SHOP_PRICE, base)
+        return max(0, final)
+
+    def _do_buy_shop_card(self, player, card_id) -> CommandResult:
+        st = self.state
+        shop = st.shop or {}
+        if card_id not in (shop.get("cards") or []):
+            return CommandResult(False, "商店里没有这张道具")
+        card = self.card_registry.get(str(card_id))
+        if card is None:
+            return CommandResult(False, "未知道具")
+        limit = int(st.rules.get("max_cards_per_player", 5))
+        if len(player.cards) >= limit:
+            return CommandResult(False, "道具已满")
+        price = self._shop_price(player, card)
+        if player.money < price:
+            return CommandResult(False, "现金不足")
+
+        st.ledger.pay_bank(st, player, price, Reason.SHOP, "购买 " + card.name)
+        player.add_card(card.id, limit)
+        st.log(EventType.CARD_GAINED,
+               f"{player.name} 在商店买了「{card.name}」，花费 {money(price)}",
+               player.id, {"card": card.id, "amount": price,
+                           "float": True, "float_target": player.id})
+        st.shop = None
+        st.pending_decision = None
+        st.bump()
+        self._enter_phase(GamePhase.TURN_END)
         return CommandResult(True)
 
     # ---------------------------------------------------------------- 道具卡
@@ -1227,8 +1618,7 @@ class GameEngine:
 
         elif kind == "gain_money":
             amount = int(eff.get("amount", 0))
-            player.money += amount
-            player.stats["money_earned"] = player.stats.get("money_earned", 0) + amount
+            st.ledger.gain(st, player, amount, Reason.CARD, card.name)
             st.log(EventType.INFO, f"{player.name} 获得 {money(amount)}", player.id,
                    {"float": True, "float_target": player.id})
 
@@ -1256,8 +1646,7 @@ class GameEngine:
                 player.add_card(card.id)
                 return CommandResult(False, f"{other.name} 处于保护状态")
             amount = min(int(eff.get("amount", 800)), other.money)
-            other.money -= amount
-            player.money += amount
+            st.ledger.transfer(st, other, player, amount, Reason.CARD_STEAL, card.name)
             player.stats["steals_done"] = player.stats.get("steals_done", 0) + 1
             st.log(EventType.INFO, msg_steal(player.name, other.name, amount), player.id,
                    {"amount": amount, "target": other.id})
@@ -1294,6 +1683,88 @@ class GameEngine:
             st.log(EventType.PROPERTY_UPGRADED,
                    f"{player.name} 用道具免费把「{prop.name}」升到 {prop.level} 级", player.id,
                    {"property": prop.id, "level": prop.level})
+
+        elif kind == "downgrade_property":
+            prop = st.properties.get(str(target))
+            if prop is None or prop.owner_id in (None, player.id) or prop.level <= 0:
+                player.add_card(card.id)
+                return CommandResult(False, "目标地产无效")
+            owner = st.player(prop.owner_id)
+            if owner is not None and owner.has_status(STATUS_PROTECTED):
+                player.add_card(card.id)
+                return CommandResult(False, f"{owner.name} 处于保护状态")
+            prop.downgrade()
+            st.log(EventType.PROPERTY_UPGRADED,
+                   f"{player.name} 用道具把「{prop.name}」降到了 {prop.level} 级",
+                   player.id, {"property": prop.id, "level": prop.level, "downgrade": True})
+
+        elif kind == "swap_property":
+            theirs = st.properties.get(str(target))
+            mine = state_properties_sorted(st, player.id)
+            if theirs is None or theirs.owner_id in (None, player.id) or not mine:
+                player.add_card(card.id)
+                return CommandResult(False, "目标地产无效")
+            owner = st.player(theirs.owner_id)
+            if owner is not None and owner.has_status(STATUS_PROTECTED):
+                player.add_card(card.id)
+                return CommandResult(False, f"{owner.name} 处于保护状态")
+            mine_prop = mine[0]
+            my_id, their_id = mine_prop.owner_id, theirs.owner_id
+            mine_prop.transfer(their_id, keep_level=True)
+            theirs.transfer(my_id, keep_level=True)
+            st.log(EventType.PROPERTY_TRANSFERRED,
+                   f"{player.name} 用「{mine_prop.name}」换走了「{theirs.name}」",
+                   player.id, {"property": theirs.id, "gained": theirs.id,
+                               "lost": mine_prop.id})
+
+        elif kind == "extra_turn":
+            st.extra_turns += 1
+            st.log(EventType.INFO, f"{player.name} 使用了「{card.name}」，本回合后可再行动一次",
+                   player.id)
+
+        elif kind == "leave_jail":
+            if not player.in_jail:
+                player.add_card(card.id)
+                return CommandResult(False, "你不在看守所")
+            jail.release_from_jail(player)
+            st.log(EventType.JAIL_RELEASED,
+                   f"{player.name} 使用保释券离开了看守所", player.id,
+                   {"float": True, "float_target": player.id})
+
+        elif kind == "clear_negative":
+            from .player import NEGATIVE_STATUSES
+
+            removed = []
+            for status in NEGATIVE_STATUSES:
+                if player.has_status(status):
+                    player.remove_status(status)
+                    removed.append(STATUS_LABELS.get(status, status))
+            if not removed:
+                player.add_card(card.id)
+                return CommandResult(False, "你身上没有负面状态")
+            st.log(EventType.INFO,
+                   f"{player.name} 净化了负面状态：{'、'.join(removed)}", player.id)
+
+        elif kind == "wealth_tax":
+            pct = float(eff.get("percent", 0.08))
+            total = 0
+            for other in st.other_active_players(player.id):
+                if other.has_status(STATUS_PROTECTED):
+                    continue
+                tax = int(other.money * pct)
+                if tax <= 0:
+                    continue
+                st.ledger.transfer(st, other, player, tax, Reason.CARD, card.name)
+                total += tax
+                st.log(EventType.INFO,
+                       f"{other.name} 向 {player.name} 缴纳财富税 {money(tax)}",
+                       other.id, {"amount": tax, "float": True, "float_target": other.id})
+            st.log(EventType.INFO,
+                   f"{player.name} 的财富税共收得 {money(total)}", player.id,
+                   {"amount": total, "float": True, "float_target": player.id})
+            if total <= 0:
+                player.add_card(card.id)
+                return CommandResult(False, "没有收到任何税")
 
         st.bump()
         return CommandResult(True)
@@ -1423,6 +1894,17 @@ class GameEngine:
     @property
     def match_id(self) -> str:
         return self.state.match_id
+
+
+def state_properties_sorted(state: GameState, player_id: str):
+    """按地价升序排列某人的地产（产权置换卡用最便宜的一块去换）。"""
+    props = state.properties_of(player_id)
+    props.sort(key=lambda p: p.price)
+    return props
+
+
+def reason_of(debt: dict) -> str:
+    return str(debt.get("reason", "欠款"))
 
 
 def _roll_dice_checked(state: GameState, forced: int | None):

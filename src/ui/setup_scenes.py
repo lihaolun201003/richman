@@ -89,6 +89,125 @@ def draw_character_summary(surface: pygame.Surface, fonts: theme.FontManager,
                     (rect.x + 70, rect.y + 62))
 
 
+class MapPresetSelector:
+    """地图与规则预设的横向选择器。"""
+
+    def __init__(self, rect: pygame.Rect, on_change=None) -> None:
+        self.rect = pygame.Rect(rect)
+        self.on_change = on_change
+        self.map_index = 0
+        self.preset_index = 0
+        self.maps: list[dict] = []
+        self.presets: list[dict] = []
+        self.editable = True
+        self.reload()
+
+    def reload(self) -> None:
+        try:
+            from ..game.setup import available_maps, preset_list
+
+            self.maps = available_maps()
+            self.presets = preset_list()
+        except Exception:
+            self.maps, self.presets = [], []
+
+    # ---- 数据
+    @property
+    def current_map(self) -> dict:
+        return self.maps[self.map_index % max(1, len(self.maps))] if self.maps else {}
+
+    @property
+    def current_preset(self) -> dict:
+        return self.presets[self.preset_index % max(1, len(self.presets))] if self.presets else {}
+
+    def set_map(self, map_file: str) -> None:
+        for i, item in enumerate(self.maps):
+            if item["file"] == map_file:
+                self.map_index = i
+                return
+
+    def set_preset(self, preset: str) -> None:
+        for i, item in enumerate(self.presets):
+            if item["key"] == preset:
+                self.preset_index = i
+                return
+
+    # ---- 交互
+    def _rects(self) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
+        r = self.rect
+        half = r.width // 2
+        left = pygame.Rect(r.x, r.y, half - 8, r.height)
+        right = pygame.Rect(r.x + half + 8, r.y, half - 8, r.height)
+        size = 40
+        return (pygame.Rect(left.right - size - 6, left.y + 6, size, size),
+                pygame.Rect(left.x + 6, left.y + 6, size, size),
+                pygame.Rect(right.right - size - 6, right.y + 6, size, size),
+                pygame.Rect(right.x + 6, right.y + 6, size, size))
+
+    def handle_event(self, event: pygame.event.Event) -> bool:
+        if not self.editable or event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
+            return False
+        prev_m, next_m, prev_p, next_p = self._rects()
+        pos = event.pos
+        if prev_m.collidepoint(pos):
+            self.map_index = (self.map_index - 1) % max(1, len(self.maps))
+        elif next_m.collidepoint(pos):
+            self.map_index = (self.map_index + 1) % max(1, len(self.maps))
+        elif prev_p.collidepoint(pos):
+            self.preset_index = (self.preset_index - 1) % max(1, len(self.presets))
+        elif next_p.collidepoint(pos):
+            self.preset_index = (self.preset_index + 1) % max(1, len(self.presets))
+        else:
+            return self.rect.collidepoint(pos)
+        if self.on_change is not None:
+            self.on_change(self.current_map, self.current_preset)
+        return True
+
+    def draw(self, surface: pygame.Surface, fonts) -> None:
+        from . import theme
+
+        prev_m, next_m, prev_p, next_p = self._rects()
+        half = self.rect.width // 2
+        left = pygame.Rect(self.rect.x, self.rect.y, half - 8, self.rect.height)
+        right = pygame.Rect(self.rect.x + half + 8, self.rect.y, half - 8, self.rect.height)
+
+        for box, title, item, prev_r, next_r in (
+            (left, "地图", self.current_map, prev_m, next_m),
+            (right, "规则", self.current_preset, prev_p, next_p),
+        ):
+            theme.rounded_rect(surface, box, theme.color("bg_alt"), radius=12)
+            theme.rounded_rect(surface, box, None, radius=12,
+                               border=theme.color("border_soft"), border_width=1)
+            theme.draw_text(surface, title, fonts.tiny(), theme.color("text_mute"),
+                            (box.centerx, box.y + 6), anchor="midtop")
+            name = item.get("name", "—")
+            theme.draw_text(surface, name, fonts.h3(), theme.color("text"),
+                            (box.centerx, box.y + 24), anchor="midtop")
+            sub = item.get("desc") or (
+                f"{item.get('tile_count', 0)} 格 · {item.get('property_count', 0)} 地产 · "
+                f"推荐 {item.get('recommended', '')}" if item else "")
+            if item.get("starting_money"):
+                sub = (f"起始 {item['starting_money']:,} · "
+                       f"上限 {item.get('max_rounds', 0)} 轮")
+            theme.draw_text(surface, theme.truncate(sub, fonts.micro(), box.width - 100),
+                            fonts.micro(), theme.color("text_dim"),
+                            (box.centerx, box.bottom - 22), anchor="midtop")
+
+            if self.editable:
+                for r, glyph in ((prev_r, "◀"), (next_r, "▶")):
+                    hovered = r.collidepoint(pygame.mouse.get_pos())
+                    theme.rounded_rect(surface, r,
+                                       theme.color("panel_hi") if hovered
+                                       else theme.color("panel"), radius=8)
+                    theme.draw_text(surface, glyph, fonts.body(),
+                                    theme.color("accent" if hovered else "text_dim"),
+                                    r.center, anchor="center")
+            elif len(self.presets) > 1 or len(self.maps) > 1:
+                theme.draw_text(surface, "由房主选择", fonts.micro(),
+                                theme.color("text_mute"),
+                                (box.right - 10, box.y + 10), anchor="topright")
+
+
 class LocalSetupScene(Scene):
     """单机开局配置：人数、座位类型、角色。"""
 
@@ -112,6 +231,12 @@ class LocalSetupScene(Scene):
         self.picker = CharacterPicker(pygame.Rect(120, 350, 900, 116),
                                       self.character_id, self._set_character)
 
+        self.selector = MapPresetSelector(
+            pygame.Rect(620, 380, 860, 76), self._on_map_or_preset)
+        self.selector.set_map(
+            self.app.settings.get("game", "map_file", "default_map.json"))
+        self.selector.set_preset(
+            self.app.settings.get("game", "preset", "standard"))
         self.widgets = [
             self.nick_input,
             self.count_select,
@@ -172,6 +297,12 @@ class LocalSetupScene(Scene):
         self.seats.pop()
         self.count_select.set_value(self.player_count)
 
+    def _on_map_or_preset(self, map_info: dict, preset: dict) -> None:
+        self.app.settings.set("game", "map_file",
+                              map_info.get("file", "default_map.json"))
+        self.app.settings.set("game", "preset",
+                              preset.get("key", "standard"))
+
     def _start(self) -> None:
         name = (self.nick_input.text or "玩家").strip()[:12]
         self.app.settings.set_nickname(name)
@@ -198,6 +329,8 @@ class LocalSetupScene(Scene):
             return
         if self.picker.handle_event(event):
             return
+        if self.selector.handle_event(event):
+            return
         super().handle_event(event)
 
     def draw(self, surface: pygame.Surface) -> None:
@@ -221,6 +354,7 @@ class LocalSetupScene(Scene):
             self._draw_seat(surface, card, i, seat)
 
         self.picker.draw(surface, self.fonts)
+        self.selector.draw(surface, self.fonts)
 
         # 选中的角色详情
         draw_character_summary(surface, self.fonts, pygame.Rect(1060, 350, 420, 88),

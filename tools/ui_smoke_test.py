@@ -72,6 +72,47 @@ def pump(app, frames: int = 3) -> None:
         app.scenes.draw(app.virtual)
 
 
+def resolve_asset_panel(app, modal) -> bool:
+    """在资产面板里做一步能推进的操作（优先抵押，其次出售，最后破产出口）。"""
+    if getattr(modal, "busy", False):
+        pump(app, 2)
+        return True
+    for action in ("mortgage", "sell", "downgrade", "upgrade"):
+        card, rect = modal.find_action(action)
+        if card is not None and rect is not None:
+            for kind in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
+                app.scenes.handle_event(
+                    pygame.event.Event(kind, {"pos": rect.center, "button": 1}))
+            pump(app, 2)
+            return True
+    if modal.on_declare is not None:
+        rect = modal._declare_button_rect()
+        for kind in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
+            app.scenes.handle_event(
+                pygame.event.Event(kind, {"pos": rect.center, "button": 1}))
+        pump(app, 2)
+        return True
+    return False
+
+
+def auto_resolve_modal(app, modal) -> bool:
+    """通用弹窗处理：优先走资产面板专用逻辑，否则点第一个可用按钮。"""
+    from src.ui.asset_panel import AssetPanel
+
+    if isinstance(modal, AssetPanel):
+        return resolve_asset_panel(app, modal)
+    button = next((b for b in modal.buttons if b.enabled), None)
+    if button is not None:
+        for kind in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
+            app.scenes.handle_event(
+                pygame.event.Event(kind, {"pos": button.rect.center, "button": 1}))
+        pump(app, 2)
+        return True
+    modal.close()
+    app.scenes.current.modal = None
+    return False
+
+
 def click(app, pos: tuple[int, int]) -> None:
     """模拟在逻辑坐标上点击。"""
     for kind in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
@@ -217,7 +258,7 @@ def main() -> int:
         clicked_roll = 0
         handled_decisions = 0
         modal_shots = 0
-        deadline_frames = args.turns * 60 * 8
+        deadline_frames = max(12000, args.turns * 60 * 8)
         frames = 0
 
         while frames < deadline_frames and not engine.state.game_over:
@@ -228,16 +269,11 @@ def main() -> int:
             # 处理弹窗：点击第一个可用按钮
             if getattr(scene, "modal", None) is not None:
                 modal = scene.modal
-                if modal_shots < 4:
+                if modal_shots < 6:
                     modal_shots += 1
                     shot(app.virtual, os.path.join(shots, f"06c_modal_{modal_shots}.png"))
                 handled_decisions += 1
-                button = next((b for b in modal.buttons if b.enabled), None)
-                if button is not None:
-                    click(app, button.rect.center)
-                else:
-                    modal.close()
-                    scene.modal = None
+                auto_resolve_modal(app, modal)
                 continue
 
             decision = scene.session.decision if hasattr(scene, "session") else None
@@ -271,18 +307,13 @@ def main() -> int:
         app.settings.set("ui", "animation_speed", 30.0)
         app.apply_animation_speed()
         guard = 0
-        max_guard = max(60000, args.turns * 60 * 40)
+        max_guard = max(90000, args.turns * 60 * 80)
         while not engine.state.game_over and guard < max_guard:
             guard += 1
             scene = app.scenes.current
             if getattr(scene, "modal", None) is not None:
                 modal = scene.modal
-                button = next((b for b in modal.buttons if b.enabled), None)
-                if button is not None:
-                    click(app, button.rect.center)
-                else:
-                    modal.close()
-                    scene.modal = None
+                auto_resolve_modal(app, modal)
                 continue
             decision = scene.session.decision if hasattr(scene, "session") else None
             if decision is not None:

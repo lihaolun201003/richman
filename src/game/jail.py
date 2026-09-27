@@ -8,17 +8,16 @@
 """
 from __future__ import annotations
 
+from . import modifiers as mods
 from .player import Player
 from .state import GameState
 
 
 def jail_fee(state: GameState, player: Player) -> int:
-    """该玩家的保释金（含角色折扣）。"""
+    """该玩家的保释金（含角色 / 状态修正）。"""
     base = int(state.rules.get("jail_release_fee", 1500))
-    rate = player.perk_value("jail_fee_discount")
-    if rate:
-        base = int(round(base * (1.0 - rate)))
-    return max(0, base)
+    final, _ = mods.resolve(player, mods.Hook.JAIL_COST, base)
+    return max(0, final)
 
 
 def jail_max_turns(state: GameState) -> int:

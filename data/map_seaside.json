@@ -1,62 +1,71 @@
 {
-  "id": "city_default",
-  "name": "城市之光",
-  "description": "标准都市棋盘，地产密度高，节奏紧凑",
-  "cols": 11,
-  "rows": 9,
-  "tile_count": 36,
+  "id": "seaside",
+  "name": "海滨假日",
+  "description": "更大的海岛棋盘，地产更多，单局更从容",
+  "cols": 12,
+  "rows": 10,
+  "tile_count": 40,
   "corners": [
     0,
-    10,
-    18,
-    28
+    11,
+    20,
+    31
   ],
-  "recommended_players": "2～5 人",
+  "recommended_players": "3～6 人",
   "districts": {
-    "东城片区": [
+    "椰林区": [
       1,
       2
     ],
-    "星河商圈": [
+    "冲浪区": [
       4,
       5
     ],
-    "云港湾区": [
+    "海豚湾": [
       7,
       8
     ],
-    "高新园区": [
-      11,
-      12
-    ],
-    "湖景片区": [
-      14,
-      15
+    "灯塔区": [
+      12,
+      13
     ],
     "交通枢纽": [
-      16,
-      32
+      14
     ],
-    "文创街区": [
-      17,
-      20
+    "老港区": [
+      15,
+      16
     ],
-    "金融区": [
-      21,
-      22
+    "度假区": [
+      18,
+      19
     ],
-    "未来城": [
-      24,
+    "游艇区": [
+      22,
+      23
+    ],
+    "养殖区": [
       25,
-      35
+      26
     ],
-    "学区": [
-      27,
+    "观光区": [
+      28,
       29
     ],
-    "滨海新区": [
-      30,
-      31
+    "秘境": [
+      32,
+      33
+    ],
+    "远洋区": [
+      34,
+      35
+    ],
+    "极地": [
+      37,
+      38
+    ],
+    "全景": [
+      39
     ]
   },
   "property_ids": [
@@ -66,38 +75,40 @@
     "p05",
     "p07",
     "p08",
-    "p11",
     "p12",
+    "p13",
     "p14",
     "p15",
     "p16",
-    "p17",
-    "p20",
-    "p21",
+    "p18",
+    "p19",
     "p22",
-    "p24",
+    "p23",
     "p25",
-    "p27",
+    "p26",
+    "p28",
     "p29",
-    "p30",
-    "p31",
     "p32",
+    "p33",
     "p34",
-    "p35"
+    "p35",
+    "p37",
+    "p38",
+    "p39"
   ],
   "tiles": [
     {
       "id": 0,
       "index": 0,
       "type": "START",
-      "name": "城市广场",
+      "name": "阳光沙滩",
       "district": null,
       "side": "corner_bl",
       "slot": 0,
       "col": 0,
-      "row": 8,
+      "row": 9,
       "metadata": {
-        "note": "经过或停留可领取通行奖励",
+        "note": "旅程从这里开始",
         "tax_kind": "fixed"
       }
     },
@@ -105,12 +116,12 @@
       "id": 1,
       "index": 1,
       "type": "PROPERTY",
-      "name": "晨曦社区",
-      "district": "东城片区",
+      "name": "椰林小径",
+      "district": "椰林区",
       "side": "bottom",
       "slot": 1,
       "col": 1,
-      "row": 8,
+      "row": 9,
       "metadata": {
         "note": "",
         "tax_kind": "fixed"
@@ -120,12 +131,12 @@
       "id": 2,
       "index": 2,
       "type": "PROPERTY",
-      "name": "晨光苑",
-      "district": "东城片区",
+      "name": "贝壳湾",
+      "district": "椰林区",
       "side": "bottom",
       "slot": 2,
       "col": 2,
-      "row": 8,
+      "row": 9,
       "metadata": {
         "note": "",
         "tax_kind": "fixed"
@@ -135,12 +146,12 @@
       "id": 3,
       "index": 3,
       "type": "FORTUNE",
-      "name": "好运街角",
+      "name": "海风送福",
       "district": null,
       "side": "bottom",
       "slot": 3,
       "col": 3,
-      "row": 8,
+      "row": 9,
       "metadata": {
         "note": "只会有好事发生",
         "tax_kind": "fixed"
@@ -150,12 +161,12 @@
       "id": 4,
       "index": 4,
       "type": "PROPERTY",
-      "name": "星河商街",
-      "district": "星河商圈",
+      "name": "冲浪海滩",
+      "district": "冲浪区",
       "side": "bottom",
       "slot": 4,
       "col": 4,
-      "row": 8,
+      "row": 9,
       "metadata": {
         "note": "",
         "tax_kind": "fixed"
@@ -165,12 +176,12 @@
       "id": 5,
       "index": 5,
       "type": "PROPERTY",
-      "name": "星港百货",
-      "district": "星河商圈",
+      "name": "潜水码头",
+      "district": "冲浪区",
       "side": "bottom",
       "slot": 5,
       "col": 5,
-      "row": 8,
+      "row": 9,
       "metadata": {
         "note": "",
         "tax_kind": "fixed"
@@ -180,12 +191,12 @@
       "id": 6,
       "index": 6,
       "type": "TAX",
-      "name": "城市营业税",
+      "name": "度假税",
       "district": null,
       "side": "bottom",
       "slot": 6,
       "col": 6,
-      "row": 8,
+      "row": 9,
       "metadata": {
         "note": "缴纳固定税款",
         "tax_kind": "fixed"
@@ -195,12 +206,12 @@
       "id": 7,
       "index": 7,
       "type": "PROPERTY",
-      "name": "云港码头",
-      "district": "云港湾区",
+      "name": "海豚湾",
+      "district": "海豚湾",
       "side": "bottom",
       "slot": 7,
       "col": 7,
-      "row": 8,
+      "row": 9,
       "metadata": {
         "note": "",
         "tax_kind": "fixed"
@@ -210,12 +221,12 @@
       "id": 8,
       "index": 8,
       "type": "PROPERTY",
-      "name": "云帆中心",
-      "district": "云港湾区",
+      "name": "水族馆",
+      "district": "海豚湾",
       "side": "bottom",
       "slot": 8,
       "col": 8,
-      "row": 8,
+      "row": 9,
       "metadata": {
         "note": "",
         "tax_kind": "fixed"
@@ -225,12 +236,12 @@
       "id": 9,
       "index": 9,
       "type": "DISASTER",
-      "name": "事故现场",
+      "name": "台风警报",
       "district": null,
       "side": "bottom",
       "slot": 9,
       "col": 9,
-      "row": 8,
+      "row": 9,
       "metadata": {
         "note": "小心，这里只有坏消息",
         "tax_kind": "fixed"
@@ -239,30 +250,30 @@
     {
       "id": 10,
       "index": 10,
-      "type": "JAIL",
-      "name": "看守所",
+      "type": "SHOP",
+      "name": "海滩集市",
       "district": null,
-      "side": "corner_br",
-      "slot": 0,
+      "side": "bottom",
+      "slot": 10,
       "col": 10,
-      "row": 8,
+      "row": 9,
       "metadata": {
-        "note": "路过无事，被关押则停留于此",
+        "note": "用现金购买道具卡",
         "tax_kind": "fixed"
       }
     },
     {
       "id": 11,
       "index": 11,
-      "type": "PROPERTY",
-      "name": "科技新城",
-      "district": "高新园区",
-      "side": "right",
-      "slot": 1,
-      "col": 10,
-      "row": 7,
+      "type": "JAIL",
+      "name": "渔港派出所",
+      "district": null,
+      "side": "corner_br",
+      "slot": 0,
+      "col": 11,
+      "row": 9,
       "metadata": {
-        "note": "",
+        "note": "路过无事，被关押则停留于此",
         "tax_kind": "fixed"
       }
     },
@@ -270,12 +281,12 @@
       "id": 12,
       "index": 12,
       "type": "PROPERTY",
-      "name": "创客大厦",
-      "district": "高新园区",
+      "name": "灯塔岬",
+      "district": "灯塔区",
       "side": "right",
-      "slot": 2,
-      "col": 10,
-      "row": 6,
+      "slot": 1,
+      "col": 11,
+      "row": 8,
       "metadata": {
         "note": "",
         "tax_kind": "fixed"
@@ -284,30 +295,30 @@
     {
       "id": 13,
       "index": 13,
-      "type": "SHOP",
-      "name": "便利店",
-      "district": null,
+      "type": "PROPERTY",
+      "name": "观景台",
+      "district": "灯塔区",
       "side": "right",
-      "slot": 3,
-      "col": 10,
-      "row": 5,
+      "slot": 2,
+      "col": 11,
+      "row": 7,
       "metadata": {
-        "note": "用现金购买道具卡",
+        "note": "",
         "tax_kind": "fixed"
       }
     },
     {
       "id": 14,
       "index": 14,
-      "type": "PROPERTY",
-      "name": "湖畔花园",
-      "district": "湖景片区",
+      "type": "STATION",
+      "name": "渡轮码头",
+      "district": "交通枢纽",
       "side": "right",
-      "slot": 4,
-      "col": 10,
-      "row": 4,
+      "slot": 3,
+      "col": 11,
+      "row": 6,
       "metadata": {
-        "note": "",
+        "note": "高级地产，租金成长更快",
         "tax_kind": "fixed"
       }
     },
@@ -315,12 +326,12 @@
       "id": 15,
       "index": 15,
       "type": "PROPERTY",
-      "name": "湖滨大道",
-      "district": "湖景片区",
+      "name": "海鲜市场",
+      "district": "老港区",
       "side": "right",
-      "slot": 5,
-      "col": 10,
-      "row": 3,
+      "slot": 4,
+      "col": 11,
+      "row": 5,
       "metadata": {
         "note": "",
         "tax_kind": "fixed"
@@ -329,27 +340,57 @@
     {
       "id": 16,
       "index": 16,
-      "type": "STATION",
-      "name": "中央车站",
-      "district": "交通枢纽",
+      "type": "PROPERTY",
+      "name": "码头仓库",
+      "district": "老港区",
       "side": "right",
-      "slot": 6,
-      "col": 10,
-      "row": 2,
+      "slot": 5,
+      "col": 11,
+      "row": 4,
       "metadata": {
-        "note": "高级地产，租金成长更快",
+        "note": "",
         "tax_kind": "fixed"
       }
     },
     {
       "id": 17,
       "index": 17,
+      "type": "FORTUNE",
+      "name": "拾贝之喜",
+      "district": null,
+      "side": "right",
+      "slot": 6,
+      "col": 11,
+      "row": 3,
+      "metadata": {
+        "note": "只会有好事发生",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 18,
+      "index": 18,
       "type": "PROPERTY",
-      "name": "创意园区",
-      "district": "文创街区",
+      "name": "珊瑚酒店",
+      "district": "度假区",
       "side": "right",
       "slot": 7,
-      "col": 10,
+      "col": 11,
+      "row": 2,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 19,
+      "index": 19,
+      "type": "PROPERTY",
+      "name": "沙滩别墅",
+      "district": "度假区",
+      "side": "right",
+      "slot": 8,
+      "col": 11,
       "row": 1,
       "metadata": {
         "note": "",
@@ -357,14 +398,14 @@
       }
     },
     {
-      "id": 18,
-      "index": 18,
+      "id": 20,
+      "index": 20,
       "type": "PARK",
-      "name": "中央公园",
+      "name": "海滨公园",
       "district": null,
       "side": "corner_tr",
       "slot": 0,
-      "col": 10,
+      "col": 11,
       "row": 0,
       "metadata": {
         "note": "停留可领取奖金池全部奖金",
@@ -372,14 +413,14 @@
       }
     },
     {
-      "id": 19,
-      "index": 19,
+      "id": 21,
+      "index": 21,
       "type": "BONUS",
-      "name": "城市奖金池",
+      "name": "海洋奖金池",
       "district": null,
       "side": "top",
       "slot": 1,
-      "col": 9,
+      "col": 10,
       "row": 0,
       "metadata": {
         "note": "领取奖金池中的累积奖金",
@@ -387,44 +428,14 @@
       }
     },
     {
-      "id": 20,
-      "index": 20,
-      "type": "PROPERTY",
-      "name": "艺术街区",
-      "district": "文创街区",
-      "side": "top",
-      "slot": 2,
-      "col": 8,
-      "row": 0,
-      "metadata": {
-        "note": "",
-        "tax_kind": "fixed"
-      }
-    },
-    {
-      "id": 21,
-      "index": 21,
-      "type": "PROPERTY",
-      "name": "金融中心",
-      "district": "金融区",
-      "side": "top",
-      "slot": 3,
-      "col": 7,
-      "row": 0,
-      "metadata": {
-        "note": "",
-        "tax_kind": "fixed"
-      }
-    },
-    {
       "id": 22,
       "index": 22,
       "type": "PROPERTY",
-      "name": "银行大厦",
-      "district": "金融区",
+      "name": "游艇会所",
+      "district": "游艇区",
       "side": "top",
-      "slot": 4,
-      "col": 6,
+      "slot": 2,
+      "col": 9,
       "row": 0,
       "metadata": {
         "note": "",
@@ -434,27 +445,12 @@
     {
       "id": 23,
       "index": 23,
-      "type": "FORTUNE",
-      "name": "好运街角",
-      "district": null,
-      "side": "top",
-      "slot": 5,
-      "col": 5,
-      "row": 0,
-      "metadata": {
-        "note": "只会有好事发生",
-        "tax_kind": "fixed"
-      }
-    },
-    {
-      "id": 24,
-      "index": 24,
       "type": "PROPERTY",
-      "name": "未来广场",
-      "district": "未来城",
+      "name": "海景公寓",
+      "district": "游艇区",
       "side": "top",
-      "slot": 6,
-      "col": 4,
+      "slot": 3,
+      "col": 8,
       "row": 0,
       "metadata": {
         "note": "",
@@ -462,14 +458,29 @@
       }
     },
     {
+      "id": 24,
+      "index": 24,
+      "type": "DISASTER",
+      "name": "赤潮来袭",
+      "district": null,
+      "side": "top",
+      "slot": 4,
+      "col": 7,
+      "row": 0,
+      "metadata": {
+        "note": "小心，这里只有坏消息",
+        "tax_kind": "fixed"
+      }
+    },
+    {
       "id": 25,
       "index": 25,
       "type": "PROPERTY",
-      "name": "未来科技馆",
-      "district": "未来城",
+      "name": "珍珠养殖场",
+      "district": "养殖区",
       "side": "top",
-      "slot": 7,
-      "col": 3,
+      "slot": 5,
+      "col": 6,
       "row": 0,
       "metadata": {
         "note": "",
@@ -479,27 +490,12 @@
     {
       "id": 26,
       "index": 26,
-      "type": "TAX",
-      "name": "奢侈消费税",
-      "district": null,
-      "side": "top",
-      "slot": 8,
-      "col": 2,
-      "row": 0,
-      "metadata": {
-        "note": "按资产比例征税",
-        "tax_kind": "asset"
-      }
-    },
-    {
-      "id": 27,
-      "index": 27,
       "type": "PROPERTY",
-      "name": "大学城",
-      "district": "学区",
+      "name": "海藻农场",
+      "district": "养殖区",
       "side": "top",
-      "slot": 9,
-      "col": 1,
+      "slot": 6,
+      "col": 5,
       "row": 0,
       "metadata": {
         "note": "",
@@ -507,10 +503,70 @@
       }
     },
     {
+      "id": 27,
+      "index": 27,
+      "type": "TAX",
+      "name": "海洋资源税",
+      "district": null,
+      "side": "top",
+      "slot": 7,
+      "col": 4,
+      "row": 0,
+      "metadata": {
+        "note": "按资产比例征税",
+        "tax_kind": "asset"
+      }
+    },
+    {
       "id": 28,
       "index": 28,
+      "type": "PROPERTY",
+      "name": "缆车站",
+      "district": "观光区",
+      "side": "top",
+      "slot": 8,
+      "col": 3,
+      "row": 0,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 29,
+      "index": 29,
+      "type": "PROPERTY",
+      "name": "悬崖餐厅",
+      "district": "观光区",
+      "side": "top",
+      "slot": 9,
+      "col": 2,
+      "row": 0,
+      "metadata": {
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 30,
+      "index": 30,
+      "type": "SHOP",
+      "name": "免税商店",
+      "district": null,
+      "side": "top",
+      "slot": 10,
+      "col": 1,
+      "row": 0,
+      "metadata": {
+        "note": "用现金购买道具卡",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 31,
+      "index": 31,
       "type": "GO_TO_JAIL",
-      "name": "治安巡查",
+      "name": "海警巡逻",
       "district": null,
       "side": "corner_tl",
       "slot": 0,
@@ -522,11 +578,11 @@
       }
     },
     {
-      "id": 29,
-      "index": 29,
+      "id": 32,
+      "index": 32,
       "type": "PROPERTY",
-      "name": "实验中学",
-      "district": "学区",
+      "name": "无人岛",
+      "district": "秘境",
       "side": "left",
       "slot": 1,
       "col": 0,
@@ -537,11 +593,11 @@
       }
     },
     {
-      "id": 30,
-      "index": 30,
+      "id": 33,
+      "index": 33,
       "type": "PROPERTY",
-      "name": "海岸新城",
-      "district": "滨海新区",
+      "name": "海蚀洞",
+      "district": "秘境",
       "side": "left",
       "slot": 2,
       "col": 0,
@@ -552,11 +608,11 @@
       }
     },
     {
-      "id": 31,
-      "index": 31,
+      "id": 34,
+      "index": 34,
       "type": "PROPERTY",
-      "name": "海岸度假村",
-      "district": "滨海新区",
+      "name": "远洋邮轮",
+      "district": "远洋区",
       "side": "left",
       "slot": 3,
       "col": 0,
@@ -567,62 +623,77 @@
       }
     },
     {
-      "id": 32,
-      "index": 32,
-      "type": "STATION",
-      "name": "国际机场",
-      "district": "交通枢纽",
+      "id": 35,
+      "index": 35,
+      "type": "PROPERTY",
+      "name": "海底餐厅",
+      "district": "远洋区",
       "side": "left",
       "slot": 4,
       "col": 0,
       "row": 4,
       "metadata": {
-        "note": "高级地产，租金成长更快",
+        "note": "",
         "tax_kind": "fixed"
       }
     },
     {
-      "id": 33,
-      "index": 33,
-      "type": "DISASTER",
-      "name": "事故现场",
+      "id": 36,
+      "index": 36,
+      "type": "FORTUNE",
+      "name": "海豚引路",
       "district": null,
       "side": "left",
       "slot": 5,
       "col": 0,
       "row": 5,
       "metadata": {
-        "note": "小心，这里只有坏消息",
+        "note": "只会有好事发生",
         "tax_kind": "fixed"
       }
     },
     {
-      "id": 34,
-      "index": 34,
+      "id": 37,
+      "index": 37,
       "type": "PROPERTY",
-      "name": "山景社区",
-      "district": null,
+      "name": "极地馆",
+      "district": "极地",
       "side": "left",
       "slot": 6,
       "col": 0,
       "row": 6,
       "metadata": {
-        "note": "独立地产，不参与分区垄断",
+        "note": "",
         "tax_kind": "fixed"
       }
     },
     {
-      "id": 35,
-      "index": 35,
+      "id": 38,
+      "index": 38,
       "type": "PROPERTY",
-      "name": "未来港塔",
-      "district": "未来城",
+      "name": "冰川酒店",
+      "district": "极地",
       "side": "left",
       "slot": 7,
       "col": 0,
       "row": 7,
       "metadata": {
-        "note": "全城地标，最昂贵的地产",
+        "note": "",
+        "tax_kind": "fixed"
+      }
+    },
+    {
+      "id": 39,
+      "index": 39,
+      "type": "PROPERTY",
+      "name": "海岸旅游塔",
+      "district": "全景",
+      "side": "left",
+      "slot": 8,
+      "col": 0,
+      "row": 8,
+      "metadata": {
+        "note": "海滨地标，最昂贵的地产",
         "tax_kind": "fixed"
       }
     }

@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "description": "可选角色。perk.kind 由 src/game/player.py 的 perk 计算函数统一解释。",
+  "version": 2,
+  "description": "可选角色。所有数值影响统一通过 perk.modifiers（Modifier 系统）声明，代码里不存在 if character == xxx。special 字段用于无法用 Modifier 表达的被动（初始资金、事件收益）。personality 决定 AI 接管该角色时的策略倾向。",
   "characters": [
     {
       "id": "char_ajin",
@@ -9,7 +9,13 @@
       "theme_color": "#F1C40F",
       "title": "小老板",
       "bio": "从夜市摊位起家，开口闭口都是利润率，但确实攒下了本钱。",
-      "perk": {"kind": "start_money_bonus", "value": 1500, "desc": "起始资金 +1500"}
+      "personality": "balanced",
+      "perk": {
+        "desc": "起始资金 +1,500",
+        "special": "start_money_bonus",
+        "value": 1500,
+        "modifiers": []
+      }
     },
     {
       "id": "char_xiaoman",
@@ -18,7 +24,13 @@
       "theme_color": "#2ECC71",
       "title": "快递骑手",
       "bio": "城市每条路都熟得很，跑一圈回来总比别人多挣一点。",
-      "perk": {"kind": "pass_start_bonus", "value": 600, "desc": "每次经过起点额外 +600"}
+      "personality": "aggressive",
+      "perk": {
+        "desc": "经过起点额外 +600",
+        "modifiers": [
+          {"hook": "modify_start_reward", "op": "add", "value": 600, "source": "快递骑手"}
+        ]
+      }
     },
     {
       "id": "char_laochen",
@@ -27,7 +39,13 @@
       "theme_color": "#3498DB",
       "title": "二手房东",
       "bio": "买卖房子三十年，砍价是他最擅长的运动。",
-      "perk": {"kind": "buy_discount", "value": 0.08, "desc": "购买地产价格 -8%"}
+      "personality": "steady",
+      "perk": {
+        "desc": "购买地产价格 -8%",
+        "modifiers": [
+          {"hook": "modify_purchase_price", "op": "mul", "value": -0.08, "source": "砍价高手"}
+        ]
+      }
     },
     {
       "id": "char_nana",
@@ -36,7 +54,13 @@
       "theme_color": "#E84393",
       "title": "网红主播",
       "bio": "镜头一开，租客就不好意思拖欠了。",
-      "perk": {"kind": "rent_income_bonus", "value": 0.12, "desc": "收取租金 +12%"}
+      "personality": "balanced",
+      "perk": {
+        "desc": "收取租金 +12%",
+        "modifiers": [
+          {"hook": "modify_rent_received", "op": "mul", "value": 0.12, "source": "带货效应"}
+        ]
+      }
     },
     {
       "id": "char_tiedan",
@@ -45,7 +69,13 @@
       "theme_color": "#E67E22",
       "title": "装修队长",
       "bio": "什么场面都见过，看守所也进过几回，出来一样干活。",
-      "perk": {"kind": "jail_fee_discount", "value": 0.5, "desc": "保释金 -50%"}
+      "personality": "aggressive",
+      "perk": {
+        "desc": "保释金 -50%",
+        "modifiers": [
+          {"hook": "modify_jail_cost", "op": "mul", "value": -0.5, "source": "熟门熟路"}
+        ]
+      }
     },
     {
       "id": "char_drbo",
@@ -54,7 +84,13 @@
       "theme_color": "#9B59B6",
       "title": "大学讲师",
       "bio": "擅长把每次意外都变成一次课题经费申请。",
-      "perk": {"kind": "event_gain_bonus", "value": 0.2, "desc": "机遇事件的收益 +20%"}
+      "personality": "balanced",
+      "perk": {
+        "desc": "机遇事件的收益 +20%",
+        "special": "event_gain_bonus",
+        "value": 0.2,
+        "modifiers": []
+      }
     },
     {
       "id": "char_afei",
@@ -63,7 +99,13 @@
       "theme_color": "#1ABC9C",
       "title": "工地工头",
       "bio": "手底下有一支队伍，盖楼比谁都快，也更便宜。",
-      "perk": {"kind": "upgrade_discount", "value": 0.1, "desc": "地产升级费用 -10%"}
+      "personality": "aggressive",
+      "perk": {
+        "desc": "地产升级费用 -10%",
+        "modifiers": [
+          {"hook": "modify_upgrade_cost", "op": "mul", "value": -0.10, "source": "自己的施工队"}
+        ]
+      }
     },
     {
       "id": "char_panghu",
@@ -72,7 +114,73 @@
       "theme_color": "#E74C3C",
       "title": "烧烤摊主",
       "bio": "人缘好到房东都不好意思多收他钱。",
-      "perk": {"kind": "rent_payment_discount", "value": 0.1, "desc": "支付租金 -10%"}
+      "personality": "steady",
+      "perk": {
+        "desc": "支付租金 -10%",
+        "modifiers": [
+          {"hook": "modify_rent_paid", "op": "mul", "value": -0.10, "source": "人缘好"}
+        ]
+      }
+    },
+    {
+      "id": "char_zhou",
+      "name_cn": "老周",
+      "name_en": "Zhou",
+      "theme_color": "#16A085",
+      "title": "杂货铺老板",
+      "bio": "整条街的货都从他这儿走，拿货自然便宜。",
+      "personality": "steady",
+      "perk": {
+        "desc": "商店购买道具 -25%",
+        "modifiers": [
+          {"hook": "modify_shop_price", "op": "mul", "value": -0.25, "source": "进货渠道"}
+        ]
+      }
+    },
+    {
+      "id": "char_azhen",
+      "name_cn": "阿珍",
+      "name_en": "Zhen",
+      "theme_color": "#D35400",
+      "title": "典当行掌柜",
+      "bio": "什么东西经她的手一过，都能卖出更好的价钱。",
+      "personality": "balanced",
+      "perk": {
+        "desc": "出售地产回收 +15%",
+        "modifiers": [
+          {"hook": "modify_sell_refund", "op": "mul", "value": 0.15, "source": "典当行门路"}
+        ]
+      }
+    },
+    {
+      "id": "char_qiang",
+      "name_cn": "强哥",
+      "name_en": "Qiang",
+      "theme_color": "#7F8C8D",
+      "title": "银行信贷员",
+      "bio": "抵押评估总能给出比市场价高一截的数字。",
+      "personality": "steady",
+      "perk": {
+        "desc": "抵押可多拿 30% 现金",
+        "modifiers": [
+          {"hook": "modify_mortgage_value", "op": "mul", "value": 0.30, "source": "信贷评估"}
+        ]
+      }
+    },
+    {
+      "id": "char_xiaozhao",
+      "name_cn": "小赵",
+      "name_en": "Zhao",
+      "theme_color": "#2980B9",
+      "title": "税务师",
+      "bio": "合法地把每一项支出都压到最低。",
+      "personality": "steady",
+      "perk": {
+        "desc": "缴纳税款 -30%",
+        "modifiers": [
+          {"hook": "modify_tax", "op": "mul", "value": -0.30, "source": "税务筹划"}
+        ]
+      }
     }
   ],
   "player_palette": [
@@ -82,5 +190,31 @@
     {"id": "amber", "name": "黄队", "color": "#F1C40F"},
     {"id": "purple", "name": "紫队", "color": "#9B59B6"},
     {"id": "orange", "name": "橙队", "color": "#E67E22"}
-  ]
+  ],
+  "ai_personalities": {
+    "steady": {
+      "name": "稳健型",
+      "desc": "保留更多现金，偏好低风险投资",
+      "reserve_multiplier": 1.6,
+      "buy_threshold": 12,
+      "upgrade_threshold": 6,
+      "attack_bias": 0.7
+    },
+    "balanced": {
+      "name": "均衡型",
+      "desc": "攻守平衡，默认策略",
+      "reserve_multiplier": 1.0,
+      "buy_threshold": 0,
+      "upgrade_threshold": 0,
+      "attack_bias": 1.0
+    },
+    "aggressive": {
+      "name": "激进型",
+      "desc": "积极买地与升级，现金保留少",
+      "reserve_multiplier": 0.6,
+      "buy_threshold": -14,
+      "upgrade_threshold": -8,
+      "attack_bias": 1.4
+    }
+  }
 }

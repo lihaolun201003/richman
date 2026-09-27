@@ -15,6 +15,7 @@ from typing import Any
 
 from .board import Board
 from .commands import PendingDecision
+from .ledger import EconomyLedger
 from .dice import DiceResult
 from .events import GameEvent
 from .phases import GamePhase
@@ -55,6 +56,9 @@ class GameState:
         self.district_bonus = float(district_bonus)
 
         self.rules: dict[str, Any] = rules or {}
+        #: 本局采用的预设与地图（用于界面展示与存档记录）
+        self.preset: str = str(self.rules.get("preset", "standard"))
+        self.map_file: str = str(self.rules.get("_map_file", "default_map.json"))
 
         # 随机
         self.seed = int(seed if seed is not None else random.randint(1, 2**31 - 1))
@@ -75,6 +79,7 @@ class GameState:
         self.pending_decision: PendingDecision | None = None
         self.pending_effect: dict[str, Any] | None = None   # 需要额外目标的效果
         self.debt: dict[str, Any] | None = None
+        self.shop: dict[str, Any] | None = None              # 当前商店展示的卡片
         self.extra_turns = 0           # 额外回合（再掷一次）
         self.turn_rolled = False       # 本回合是否已掷骰
         self.doubles_count = 0         # 连续双数次数
@@ -93,6 +98,9 @@ class GameState:
         self.phase_duration = 0.0
         self.decision_timer = 0.0      # 当前决策已等待的时间（防挂机卡局）
         self.clock = 0.0               # Host 单调游戏时钟（秒）
+
+        # 资金流水（所有 money 变化都经它记账）
+        self.ledger = EconomyLedger()
 
         # 日志
         self.event_log: list[GameEvent] = []
@@ -249,6 +257,8 @@ class GameState:
             "seed": self.seed,
             "rng_counter": self.rng_counter,
             "rules": dict(self.rules),
+            "preset": self.preset,
+            "map_file": self.map_file,
             "board": self.board.to_dict(),
             "players": [p.to_dict() for p in self.players],
             "properties": {k: v.to_dict() for k, v in self.properties.items()},
@@ -264,6 +274,7 @@ class GameState:
             "pending_decision": self.pending_decision.to_dict() if self.pending_decision else None,
             "pending_effect": dict(self.pending_effect) if self.pending_effect else None,
             "debt": dict(self.debt) if self.debt else None,
+            "shop": dict(self.shop) if self.shop else None,
             "extra_turns": self.extra_turns,
             "turn_rolled": self.turn_rolled,
             "doubles_count": self.doubles_count,
@@ -278,6 +289,7 @@ class GameState:
             "phase_duration": self.phase_duration,
             "decision_timer": self.decision_timer,
             "clock": self.clock,
+            "ledger": self.ledger.to_dict(),
             "event_log": [e.to_dict() for e in self.event_log],
             "event_seq": self.event_seq,
             "decision_seq": self.decision_seq,
@@ -310,6 +322,8 @@ class GameState:
         st.winner_id = d.get("winner_id")
         st.game_over = bool(d.get("game_over", False))
         st.rng_counter = int(d.get("rng_counter", 0))
+        st.preset = str(d.get("preset", st.rules.get("preset", "standard")))
+        st.map_file = str(d.get("map_file", st.rules.get("_map_file", "default_map.json")))
         st.chance_deck = list(d.get("chance_deck") or [])
         st.chance_discard = list(d.get("chance_discard") or [])
         st.dice = DiceResult.from_dict(d["dice"]) if d.get("dice") else None
@@ -321,6 +335,7 @@ class GameState:
         st.pending_decision = PendingDecision.from_dict(pd) if pd else None
         st.pending_effect = dict(d["pending_effect"]) if d.get("pending_effect") else None
         st.debt = dict(d["debt"]) if d.get("debt") else None
+        st.shop = dict(d["shop"]) if d.get("shop") else None
         st.extra_turns = int(d.get("extra_turns", 0))
         st.turn_rolled = bool(d.get("turn_rolled", False))
         st.doubles_count = int(d.get("doubles_count", 0))
@@ -335,6 +350,7 @@ class GameState:
         st.phase_duration = float(d.get("phase_duration", 0.0))
         st.decision_timer = float(d.get("decision_timer", 0.0))
         st.clock = float(d.get("clock", 0.0))
+        st.ledger.load_dict(d.get("ledger") or {})
         st.event_log = [GameEvent.from_dict(e) for e in (d.get("event_log") or [])]
         st.event_seq = int(d.get("event_seq", 0))
         st.decision_seq = int(d.get("decision_seq", 0))

@@ -29,3 +29,15 @@ saves/*.json
 # 自动生成的校验截图（报告里的关键几张单独保留，其余忽略）
 docs/reports/shots/06b_wait_roll_*.png
 docs/reports/shots/06c_modal_*.png
+
+# 打包产物
+build/
+dist/
+*.spec
+
+# 临时补丁脚本（一次性工具，不入库）
+tools/_patch_*.py
+
+# 日志与临时输出
+logs/*
+!logs/README.txt

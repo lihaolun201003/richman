@@ -283,6 +283,12 @@ class GameClient:
     def request_start(self) -> None:
         self._send(proto.MessageType.GAME_START, {})
 
+    def send_map(self, map_file: str) -> None:
+        self._send(proto.MessageType.SET_MAP, {"map_file": map_file})
+
+    def send_preset(self, preset: str) -> None:
+        self._send(proto.MessageType.SET_PRESET, {"preset": preset})
+
     def leave(self) -> None:
         self._send(proto.MessageType.LEAVE, {})
         self.close(notify=False)

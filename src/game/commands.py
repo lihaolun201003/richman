@@ -34,6 +34,15 @@ class CommandType:
     PAY_JAIL = "PAY_JAIL"
     ROLL_FOR_JAIL = "ROLL_FOR_JAIL"
 
+    # 资产操作（自己回合内可执行）
+    MORTGAGE_PROPERTY = "MORTGAGE_PROPERTY"
+    REDEEM_PROPERTY = "REDEEM_PROPERTY"
+    DOWNGRADE_PROPERTY = "DOWNGRADE_PROPERTY"
+
+    # 商店
+    BUY_SHOP_CARD = "BUY_SHOP_CARD"
+    LEAVE_SHOP = "LEAVE_SHOP"
+
     # 破产清算
     SELL_ASSET = "SELL_ASSET"
     DECLARE_BANKRUPTCY = "DECLARE_BANKRUPTCY"
@@ -162,6 +171,9 @@ class DecisionKind:
     CARD_DICE_VALUE = "card_dice_value"
     CHANCE_ACK = "chance_ack"
     BANKRUPTCY = "bankruptcy"
+    DEBT_RESOLUTION = "debt_resolution"
+    SHOP = "shop"
+    ASSET_MANAGE = "asset_manage"
     GAME_OVER = "game_over"
 
 

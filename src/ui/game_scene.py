@@ -19,7 +19,8 @@ from ..audio.manager import audio
 from ..game import economy
 from ..game.cards import CardRegistry, can_use, valid_targets
 from ..game.commands import Command, CommandType, DecisionKind, PendingDecision
-from ..game.events import EventType, money as fmt_money
+from ..game.events import EventType
+from ..game.format import money
 from ..game.phases import GamePhase
 from ..game.player import STATUS_LABELS
 from ..game.state import GameState
@@ -35,9 +36,11 @@ from .animations import (
     PieceMoveAnimation,
     draw_die,
 )
+from .asset_panel import AssetPanel
 from .board_view import BoardView
 from .dialogs import (
     CardTargetDialog,
+    ShopDialog,
     ChanceCardDialog,
     DecisionDialog,
     GameOverDialog,
@@ -75,6 +78,38 @@ CARD_ORIGIN = (SIDE_RECT.x + 14, SIDE_RECT.y + 196)
 def card_button_rect(index: int) -> pygame.Rect:
     return pygame.Rect(CARD_ORIGIN[0] + index * (CARD_W + CARD_GAP),
                        CARD_ORIGIN[1], CARD_W, CARD_H)
+
+
+class LocalInteraction:
+    """本机玩家此刻到底能做什么。
+
+    全项目只有这一个地方判断「现在该谁操作、能做什么」，
+    按钮 / 快捷键 / 弹窗 / 棋盘点击全部读它，避免每个控件自己判断 current_player。
+    """
+
+    NONE = "none"
+    ROLL_DICE = "roll_dice"
+    PROPERTY_DECISION = "property_decision"
+    JAIL_DECISION = "jail_decision"
+    CARD_TARGET = "card_target"
+    DEBT = "debt"
+    SHOP = "shop"
+    CONFIRM = "confirm"
+    GAME_OVER = "game_over"
+    WAITING = "waiting"
+
+    LABELS = {
+        NONE: "无操作",
+        ROLL_DICE: "请掷骰子",
+        PROPERTY_DECISION: "请处理地块",
+        JAIL_DECISION: "请决定看守所行动",
+        CARD_TARGET: "请选择道具目标",
+        DEBT: "请处理债务",
+        SHOP: "商店选购中",
+        CONFIRM: "请确认",
+        GAME_OVER: "对局结束",
+        WAITING: "等待其他玩家",
+    }
 
 
 class SessionView:
@@ -204,9 +239,13 @@ class GameScene(Scene):
         self._card_defs: CardRegistry | None = None
         self._char_names: dict[str, str] = {}
         self._paused = False
-        self._autosave_turn = -1
+        self._autosave_turn = -999
+        self._autosave_time = 0.0
         self._game_over_shown = False
         self._pending_card_id: str | None = None
+        self._pending_debt_reopen = False
+        self._card_buttons_key: tuple = ()
+        self._card_buttons_roll = False
         self._last_state_error = ""
         self._log_cache: list[Any] = []
         self._log_seq = -1
@@ -238,6 +277,10 @@ class GameScene(Scene):
 
     def _build_buttons(self) -> None:
         self.buttons = [
+            Button(pygame.Rect(1330, 22, 76, 44), "资产", on_click=self.open_asset_panel,
+                   style="secondary", font_size=16, tooltip="管理地产：升级 / 出售 / 抵押（I）"),
+            Button(pygame.Rect(1414, 22, 76, 44), "图鉴", on_click=self._open_help,
+                   style="secondary", font_size=16, tooltip="规则与道具图鉴（H）"),
             Button(pygame.Rect(1494, 22, 72, 44), "菜单", on_click=self._open_pause,
                    style="secondary", font_size=16, tooltip="暂停 / 菜单（ESC）"),
         ]
@@ -274,6 +317,9 @@ class GameScene(Scene):
             self.modal.update(dt)
             if self.modal.done:
                 self.modal = None
+                if getattr(self, '_pending_debt_reopen', False):
+                    self._pending_debt_reopen = False
+                    self._maybe_open_decision(st)
             return
 
         self._refresh_action_buttons()
@@ -382,15 +428,15 @@ class GameScene(Scene):
                 pos = self.board_view.tile_center(player.position)
                 amount = int(data.get("amount", 0))
                 if ev.type == EventType.PASSED_START or ev.type == EventType.BONUS_POOL_GAINED:
-                    self.anim.float_text(f"+{fmt_money(amount)}", (pos[0], pos[1] - 26),
+                    self.anim.float_text(f"+{money(amount)}", (pos[0], pos[1] - 26),
                                          "success", 26)
                     audio.play_sfx("coin")
                 elif ev.type in (EventType.RENT_PAID, EventType.TAX_PAID):
-                    self.anim.float_text(f"-{fmt_money(amount)}", (pos[0], pos[1] - 26),
+                    self.anim.float_text(f"-{money(amount)}", (pos[0], pos[1] - 26),
                                          "danger", 26)
                     audio.play_sfx("rent")
                 elif ev.type == EventType.PROPERTY_BOUGHT:
-                    self.anim.float_text(f"-{fmt_money(amount)}", (pos[0], pos[1] - 26),
+                    self.anim.float_text(f"-{money(amount)}", (pos[0], pos[1] - 26),
                                          "warning", 24)
                     audio.play_sfx("buy")
                 elif ev.type == EventType.PROPERTY_UPGRADED:
@@ -424,13 +470,23 @@ class GameScene(Scene):
         self.prop_panel.set_tile(st, idx)
         self.hover_player = self.player_panel.hit_test(mouse)
 
+    #: 自动存档的最小间隔（秒）与最小回合间隔 —— 每回合存一次既慢又没意义
+    AUTOSAVE_INTERVAL_SEC = 20.0
+    AUTOSAVE_TURNS = 4
+
     def _maybe_autosave(self, st: GameState) -> None:
-        """单机模式：每个回合结束自动存档一次。"""
+        """单机模式：定期自动存档（节流，避免每回合都写盘）。"""
         if self.session is None or self.session.engine is None:
             return
-        if st.turn_number != self._autosave_turn and not st.game_over:
-            self._autosave_turn = st.turn_number
-            savegame.autosave(self.session.engine)
+        if st.game_over:
+            return
+        now = time.time()
+        if (now - self._autosave_time < self.AUTOSAVE_INTERVAL_SEC
+                and st.turn_number - self._autosave_turn < self.AUTOSAVE_TURNS):
+            return
+        self._autosave_time = now
+        self._autosave_turn = st.turn_number
+        savegame.autosave(self.session.engine)
 
     # ================================================================ 决策
 
@@ -443,6 +499,14 @@ class GameScene(Scene):
         kind = decision.kind
         # 掷骰与升级这种「有默认动作」的决策不弹窗，改用侧栏按钮，体验更顺
         if kind in (DecisionKind.ROLL,):
+            return
+        if kind == DecisionKind.DEBT_RESOLUTION:
+            if not isinstance(self.modal, AssetPanel):
+                self.open_asset_panel(debt_mode=True)
+            return
+        if kind == DecisionKind.SHOP:
+            if not isinstance(self.modal, ShopDialog):
+                self._open_shop_dialog(decision)
             return
         if self._pending_card_id is not None:
             # 正在选道具目标，先让道具流程走完
@@ -477,7 +541,8 @@ class GameScene(Scene):
             return
         self.session.submit(CommandType.RESOLVE_DECISION, {"option_id": option_id},
                             decision_id=decision.id)
-        self._autosave_turn = -1
+        self._autosave_turn = -999
+        self._autosave_time = 0.0
         audio.play_sfx("click")
 
     def _maybe_show_game_over(self, st: GameState) -> None:
@@ -496,6 +561,172 @@ class GameScene(Scene):
             can_restart=can_restart,
         )
         audio.play_sfx("win")
+
+    # ================================================================ 输入状态
+
+    def interaction_state(self) -> str:
+        """本机玩家此刻能做什么 —— 全项目唯一的判定点。"""
+        if self.session is None:
+            return LocalInteraction.NONE
+        st = self.session.state
+        if st is None:
+            return LocalInteraction.NONE
+        if st.game_over:
+            return LocalInteraction.GAME_OVER
+        pd = self.session.decision
+        if pd is None:
+            return LocalInteraction.WAITING
+        return {
+            DecisionKind.ROLL: LocalInteraction.ROLL_DICE,
+            DecisionKind.BUY_PROPERTY: LocalInteraction.PROPERTY_DECISION,
+            DecisionKind.UPGRADE_PROPERTY: LocalInteraction.PROPERTY_DECISION,
+            DecisionKind.JAIL: LocalInteraction.JAIL_DECISION,
+            DecisionKind.DEBT_RESOLUTION: LocalInteraction.DEBT,
+            DecisionKind.SHOP: LocalInteraction.SHOP,
+            DecisionKind.CHANCE_ACK: LocalInteraction.CONFIRM,
+        }.get(pd.kind, LocalInteraction.CARD_TARGET)
+
+    @property
+    def i_am_acting(self) -> bool:
+        """此刻是不是该我操作。"""
+        return self.interaction_state() not in (
+            LocalInteraction.NONE, LocalInteraction.WAITING,
+            LocalInteraction.GAME_OVER)
+
+    # ================================================================ 资产面板
+
+    def _my_player(self):
+        if self.session is None:
+            return None
+        st = self.session.state
+        if st is None:
+            return None
+        return st.player(self.session.player_id)
+
+    def open_asset_panel(self, debt_mode: bool = False) -> None:
+        """打开资产面板。debt_mode 下顶部显示欠款进度。"""
+        from .asset_panel import AssetPanel
+
+        st = self.session.state if self.session else None
+        if st is None:
+            return
+        player = self._my_player()
+        if player is None:
+            return
+
+        title = "我的资产"
+        note = ""
+        if debt_mode and st.debt:
+            amount = int(st.debt["amount"])
+            shortfall = max(0, amount - player.money)
+            title = f"债务处理 · 还需 {money(shortfall)}"
+            note = (f"欠款 {money(amount)}（{st.debt.get('reason', '')}）"
+                    f" · 现金 {money(player.money)}")
+        self.modal = AssetPanel(
+            st, player, self._asset_action,
+            on_close=self._on_asset_panel_closed,
+            title=title, allow_sell=True, note=note,
+            on_declare=(self._declare_bankruptcy if debt_mode and st.debt else None),
+        )
+
+    def _asset_action(self, action: str, property_id: str) -> bool:
+        """资产面板里的操作：本地预检给即时反馈，真正的校验仍在引擎里。"""
+        if self.session is None:
+            return False
+        cmd = {
+            "upgrade": CommandType.UPGRADE_PROPERTY,
+            "sell": CommandType.SELL_PROPERTY,
+            "mortgage": CommandType.MORTGAGE_PROPERTY,
+            "redeem": CommandType.REDEEM_PROPERTY,
+            "downgrade": CommandType.DOWNGRADE_PROPERTY,
+        }.get(action)
+        if cmd is None:
+            return False
+        st = self.session.state
+        player = self._my_player()
+        if st is None or player is None:
+            return False
+
+        from ..game import economy as econ
+
+        prop = st.properties.get(str(property_id))
+        if prop is None:
+            return False
+        if action == "upgrade":
+            cost, _ = econ.upgrade_cost(st, player, prop)
+            if prop.is_max_level or player.money < cost:
+                return False
+        elif action == "mortgage":
+            ok, _ = econ.can_mortgage(prop)
+            if not ok:
+                return False
+        elif action == "redeem":
+            if player.money < econ.redeem_cost(prop):
+                return False
+
+        self.session.submit(cmd, {"property_id": property_id})
+        return True
+
+    def _declare_bankruptcy(self) -> None:
+        """债务救不回来时，玩家可以选择结束本局 —— 必须有这条出路。"""
+        from src.game.commands import CommandType as CT
+
+        if self.session is not None:
+            self.session.submit(CT.DECLARE_BANKRUPTCY, {})
+
+    def _on_asset_panel_closed(self) -> None:
+        """债务未解决时不允许靠关窗口逃债。"""
+        st = self.session.state if self.session else None
+        if st is None or st.debt is None:
+            return
+        player = self._my_player()
+        if player is None or st.debt.get("player_id") != player.id:
+            return
+        self._pending_debt_reopen = True
+
+    # ================================================================ 商店
+
+    def _open_shop_dialog(self, decision) -> None:
+        from ..game.cards import TIMING_LABEL
+        from .dialogs import ShopDialog
+
+        st = self.session.state if self.session else None
+        player = self._my_player()
+        if st is None or player is None or self._card_defs is None:
+            return
+        offers = []
+        for cid in decision.context.get("cards", []):
+            card = self._card_defs.get(cid)
+            if card is None:
+                continue
+            offers.append({
+                "id": cid,
+                "name": card.name,
+                "description": card.description,
+                "rarity": card.rarity,
+                "timing_label": TIMING_LABEL.get(card.timing, ""),
+            })
+        limit = int(st.rules.get("max_cards_per_player", 5))
+        self.modal = ShopDialog(
+            decision.title.replace("商店 · ", ""),
+            offers, player.money,
+            on_buy=lambda cid: self.session.submit(CommandType.BUY_SHOP_CARD,
+                                                   {"card_id": cid}),
+            on_leave=lambda: self.session.submit(CommandType.LEAVE_SHOP, {}),
+            inventory=len(player.cards), inventory_limit=limit,
+            price_of=lambda cid: self._shop_price_for(player, cid),
+        )
+
+    def _shop_price_for(self, player, card_id: str) -> int:
+        from ..game import modifiers as mods
+
+        card = self._card_defs.get(card_id) if self._card_defs else None
+        base = int(getattr(card, "shop_price", 0) or 0) if card else 0
+        if base <= 0:
+            st = self.session.state if self.session else None
+            base = int(st.rules.get("shop_base_price", 1200)) if st else 1200
+        final, _ = mods.resolve(player, mods.Hook.SHOP_PRICE, base)
+        return max(0, final)
 
     # ================================================================ 输入
 
@@ -516,6 +747,10 @@ class GameScene(Scene):
                 return
             if event.key == pygame.K_SPACE:
                 self._try_roll()
+                return
+            if event.key == pygame.K_i:
+                if self.interaction_state() != LocalInteraction.DEBT:
+                    self.open_asset_panel()
                 return
             if event.key in (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_5):
                 self._use_card_by_index(event.key - pygame.K_1)
@@ -546,11 +781,18 @@ class GameScene(Scene):
             return
         super().handle_event(event)
 
+    def _open_help(self) -> None:
+        self.app.scenes.push("help", back="game")
+
     def _open_pause(self) -> None:
         if self.modal is not None:
             return
         is_local = self.session is not None and self.session.engine is not None
         items: list[tuple[str, Any, str]] = [("继续游戏", self._close_modal, "primary")]
+        me = self._my_player()
+        if me is not None and not me.bankrupt:
+            items.append(("管理资产（I）", self._pause_open_assets, "secondary"))
+        items.append(("规则与图鉴（H）", self._pause_open_help, "secondary"))
         if is_local:
             items.append(("保存游戏", self._save_now, "secondary"))
         items.append(("设置", lambda: self.app.scenes.switch_to(
@@ -564,6 +806,16 @@ class GameScene(Scene):
     def _close_modal(self) -> None:
         self._paused = False
         self.modal = None
+
+    def _pause_open_assets(self) -> None:
+        self._paused = False
+        self.modal = None
+        self.open_asset_panel()
+
+    def _pause_open_help(self) -> None:
+        self._paused = False
+        self.modal = None
+        self._open_help()
 
     def _save_now(self) -> None:
         if self.session is None or self.session.engine is None:
@@ -590,7 +842,8 @@ class GameScene(Scene):
         if decision is None or decision.kind != DecisionKind.ROLL:
             return
         self.session.submit(CommandType.ROLL_DICE, {}, decision_id=decision.id)
-        self._autosave_turn = -1
+        self._autosave_turn = -999
+        self._autosave_time = 0.0
 
     def _use_card_by_index(self, index: int) -> None:
         if self.session is None or self._card_defs is None:
@@ -982,8 +1235,8 @@ class GameScene(Scene):
     def _refresh_action_buttons(self) -> None:
         """按当前状态刷新侧栏按钮。
 
-        必须在 update 里调用：绘制发生在事件处理之后，
-        如果在 draw 里建按钮，本帧的点击会被漏掉一帧。
+        每帧都会调用，所以必须做「无变化就跳过」的判断：
+        否则每帧新建一批 Button 对象会带来大量垃圾，拖慢帧率。
         """
         if self.session is None or self.roll_button is None:
             return
@@ -995,10 +1248,17 @@ class GameScene(Scene):
                     and st.phase is GamePhase.WAIT_ROLL)
         self.roll_button.set_enabled(can_roll)
 
-        buttons: list[Button] = []
         me = st.player(self.session.player_id)
+        cards = tuple(me.cards[:5]) if me is not None and not me.bankrupt else ()
+        # 手牌与可用性都没变时直接复用上一帧的按钮
+        if cards == self._card_buttons_key and can_roll == self._card_buttons_roll:
+            return
+        self._card_buttons_key = cards
+        self._card_buttons_roll = can_roll
+
+        buttons: list[Button] = []
         if me is not None and not me.bankrupt and self._card_defs is not None:
-            for i, card_id in enumerate(me.cards[:5]):
+            for i, card_id in enumerate(cards):
                 card = self._card_defs.get(card_id)
                 enabled = bool(card) and can_use(st, me, card)[0]
                 buttons.append(Button(

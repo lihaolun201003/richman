@@ -158,7 +158,10 @@ def main() -> int:
 
     ok = wait_until(lambda: host.lobby.player_count == 2, host, client, timeout=5.0)
     rep.check("Host 大厅显示 2 人", ok, f"lobby={host.lobby.player_count}")
-    rep.check("Client 收到大厅状态", bool(client.lobby.get("players")),
+    # 广播是异步的：join 被 Host 处理后消息还在 TCP 缓冲里，
+    # 必须再等一轮才能断言客户端看到了大厅状态。
+    ok = wait_until(lambda: bool(client.lobby.get("players")), host, client, timeout=5.0)
+    rep.check("Client 收到大厅状态", ok,
               f"{len(client.lobby.get('players', []))} 个座位")
     rep.check("Client 看到的房主", client.host_player_id == host.host_player_id,
               f"{client.host_player_id}")

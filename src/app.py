@@ -25,6 +25,7 @@ from .persistence import savegame
 from .persistence.settings import Settings
 from .ui import theme
 from .ui.game_scene import GameScene, SessionView
+from .ui.help_scene import HelpScene
 from .ui.layout import LOGICAL_HEIGHT, LOGICAL_SIZE, LOGICAL_WIDTH, Viewport, translate_event
 from .ui.lobby import LobbyScene
 from .ui.menu import MenuScene
@@ -65,6 +66,10 @@ class App:
         audio.init()
         audio.apply_settings(self.settings)
 
+        from .ui import widgets as ui_widgets
+
+        ui_widgets.set_hover_sound(lambda: audio.play_sfx("hover", 0.5))
+
         # 网络与对局
         self.host: GameHost | None = None
         self.client: GameClient | None = None
@@ -99,6 +104,7 @@ class App:
         self.scenes.register("local_setup", LocalSetupScene)
         self.scenes.register("lan_setup", LanSetupScene)
         self.scenes.register("save_browser", SaveBrowserScene)
+        self.scenes.register("help", HelpScene)
         self.scenes.register("settings", SettingsScene)
         self.scenes.register("lobby", LobbyScene)
         self.scenes.register("game", GameScene)
@@ -135,9 +141,20 @@ class App:
     def start_local_game(self, specs: list[dict[str, Any]]) -> None:
         """开始一局单机游戏。specs 中 is_ai=False 的座位由本机多人轮流操作。"""
         self._teardown_network()
-        engine = create_engine(specs, anim_speed=self.settings.animation_speed)
+        opts = getattr(self, "_last_local_options", None) or {}
+        engine = create_engine(
+            specs, anim_speed=self.settings.animation_speed,
+            map_file=opts.get("map_file") or self.settings.get(
+                "game", "map_file", "default_map.json"),
+            preset=opts.get("preset") or self.settings.get(
+                "game", "preset", "standard"),
+        )
         self.local_engine = engine
         self._last_local_specs = [dict(s) for s in specs]
+        self._last_local_options = {
+            "map_file": self.settings.get("game", "map_file", "default_map.json"),
+            "preset": self.settings.get("game", "preset", "standard"),
+        }
 
         host_local_ids = [s["id"] for s in specs if not s.get("is_ai")]
         for pid in host_local_ids:
@@ -157,6 +174,9 @@ class App:
                 host_character=character,
                 port=port,
                 anim_speed=self.settings.animation_speed,
+                map_file=self.settings.get("game", "map_file",
+                                           "default_map.json"),
+                preset=self.settings.get("game", "preset", "standard"),
             )
             self.host.start()
         except HostError as exc:
@@ -371,8 +391,9 @@ class App:
                 self.toast(reason, "error")
                 self.push_modal(_message("连接已断开", reason, "error",
                                          on_close=self._after_disconnect))
-        if self.local_engine is not None:
-            self.local_engine.update(dt)
+        # 注意：单机引擎由 GameScene（通过 SessionView）驱动，
+        # 这里不能再推进一次，否则游戏会以两倍速前进、阶段计时也会错乱。
+        # LAN 模式下 Host/Client 的驱动在上面，GameScene 不会重复推进。
 
         self._check_game_start()
         self.scenes.update(dt)

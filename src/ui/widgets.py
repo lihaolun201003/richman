@@ -12,6 +12,23 @@ import pygame
 
 from . import theme
 
+#: 悬停音效钩子：由 App 注入，控件本身不依赖音频模块
+_hover_hook = None
+
+
+def set_hover_sound(fn) -> None:
+    """注册按钮悬停时播放的音效（App 初始化时调用）。"""
+    global _hover_hook
+    _hover_hook = fn
+
+
+def _play_hover() -> None:
+    if _hover_hook is not None:
+        try:
+            _hover_hook()
+        except Exception:
+            pass
+
 
 class Widget:
     """控件基类。"""
@@ -30,7 +47,10 @@ class Widget:
         return False
 
     def update(self, dt: float, mouse_pos: tuple[int, int]) -> None:
+        was = self.hovered
         self.hovered = self.visible and self.enabled and self.rect.collidepoint(mouse_pos)
+        if self.hovered and not was:
+            _play_hover()
 
     def draw(self, surface: pygame.Surface, fonts: theme.FontManager) -> None:
         raise NotImplementedError

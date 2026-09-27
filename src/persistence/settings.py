@@ -11,7 +11,7 @@ import os
 from typing import Any
 
 from ..utils.logging_setup import get_logger
-from ..utils.paths import config_path
+from ..utils.paths import default_config_path, ensure_dir, user_config_dir
 
 log = get_logger(__name__)
 
@@ -46,6 +46,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "character_id": "char_ajin",
         "color_id": "",
     },
+    "game": {
+        "map_file": "default_map.json",
+        "preset": "standard",
+    },
     "network": {
         "last_host": "127.0.0.1",
         "last_port": 28080,
@@ -72,14 +76,14 @@ class Settings:
     """用户设置对象。"""
 
     def __init__(self, data: dict[str, Any] | None = None, path: str | None = None) -> None:
-        self.path = path or config_path(USER_SETTINGS_FILE)
+        self.path = path or os.path.join(user_config_dir(), USER_SETTINGS_FILE)
         self.data = _deep_merge(DEFAULT_SETTINGS, data or {})
         self.loaded_from_disk = False
 
     # ------------------------------------------------------------ 读写
     @classmethod
     def load(cls, path: str | None = None) -> "Settings":
-        target = path or config_path(USER_SETTINGS_FILE)
+        target = path or os.path.join(user_config_dir(), USER_SETTINGS_FILE)
         data: dict[str, Any] = {}
         if os.path.isfile(target):
             try:
@@ -90,7 +94,7 @@ class Settings:
                 data = {}
         else:
             # 首次运行：尝试合并 config/default.json 里的 ui/audio 段
-            default_file = config_path("default.json")
+            default_file = default_config_path()
             if os.path.isfile(default_file):
                 try:
                     with open(default_file, "r", encoding="utf-8") as f:
@@ -106,7 +110,7 @@ class Settings:
 
     def save(self) -> bool:
         try:
-            os.makedirs(os.path.dirname(os.path.abspath(self.path)), exist_ok=True)
+            ensure_dir(os.path.dirname(os.path.abspath(self.path)))
             tmp = self.path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, ensure_ascii=False, indent=2)

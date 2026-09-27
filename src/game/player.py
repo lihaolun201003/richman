@@ -18,12 +18,20 @@ STATUS_PURCHASE_DISCOUNT = "purchase_discount"      # 购地折扣
 STATUS_UPGRADE_DISCOUNT = "upgrade_discount"        # 升级折扣
 STATUS_FIXED_DICE = "fixed_dice"                    # 下次骰子点数固定
 STATUS_RENT_IMMUNE = "rent_immune"                  # 收租豁免（保留扩展）
+STATUS_EVENT_IMMUNE = "event_immune"                # 免疫下一次机遇 / 灾难
+STATUS_LUCKY = "lucky"                              # 事件收益翻倍
+STATUS_CARD_BLOCKED = "card_blocked"                # 下回合不能使用道具
+STATUS_TAX_EXEMPT = "tax_exempt"                    # 免税一次
+STATUS_JAIL_FREE = "jail_free"                      # 免费出狱一次
 
 #: 需要在回合开始时递减持续时间的状态
 TURN_BASED_STATUSES = frozenset(
     {
         STATUS_SKIP_TURN,
         STATUS_PROTECTED,
+        STATUS_EVENT_IMMUNE,
+        STATUS_LUCKY,
+        STATUS_CARD_BLOCKED,
     }
 )
 
@@ -37,7 +45,15 @@ STATUS_LABELS = {
     STATUS_UPGRADE_DISCOUNT: "升级折扣",
     STATUS_FIXED_DICE: "骰子已指定",
     STATUS_RENT_IMMUNE: "免租",
+    STATUS_EVENT_IMMUNE: "事件免疫",
+    STATUS_LUCKY: "幸运",
+    STATUS_CARD_BLOCKED: "道具封锁",
+    STATUS_TAX_EXEMPT: "免税",
+    STATUS_JAIL_FREE: "免保释",
 }
+
+#: 由对手施加的负面状态（净化卡可以清掉）
+NEGATIVE_STATUSES = frozenset({STATUS_SKIP_TURN, STATUS_CARD_BLOCKED})
 
 
 class StatusEffect:
@@ -56,6 +72,17 @@ class StatusEffect:
         self.duration = duration
         self.trigger = trigger
         self.payload = payload or {}
+        # 带数值的状态（折扣 / 减免…）在这里把数值固化成 modifiers，
+        # 于是经济计算完全不需要知道具体是哪个状态
+        if "modifiers" not in self.payload:
+            try:
+                from .modifiers import status_modifiers
+
+                built = status_modifiers(status, self.payload)
+                if built:
+                    self.payload["modifiers"] = built
+            except Exception:  # pragma: no cover - 极端情况下不影响状态本身
+                pass
 
     @property
     def label(self) -> str:
@@ -120,7 +147,7 @@ class Player:
         "is_ai", "is_host", "money", "position",
         "in_jail", "jail_turns", "bankrupt", "bankrupt_order",
         "disconnected", "bot_controlled", "reconnect_token",
-        "status_effects", "cards", "stats", "perk",
+        "status_effects", "cards", "stats", "perk", "extra_modifiers",
     )
 
     def __init__(
@@ -156,6 +183,8 @@ class Player:
         self.cards: list[str] = []
         self.stats: dict[str, int] = new_stats()
         self.perk: dict[str, Any] = perk or {}
+        #: 临时性数值修正（道具 / 事件挂上的），与 perk、status 一起参与 modifiers.resolve
+        self.extra_modifiers: list[Any] = []
 
     # ------------------------------------------------------------ 查询
     @property
@@ -243,6 +272,17 @@ class Player:
             return True
         return False
 
+    def add_modifier(self, modifier: Any) -> None:
+        """挂上一条临时数值修正（道具 / 事件用）。"""
+        self.extra_modifiers.append(modifier)
+
+    def remove_modifier(self, hook: str, source: str = "") -> bool:
+        for m in list(self.extra_modifiers):
+            if getattr(m, "hook", "") == hook and (not source or getattr(m, "source", "") == source):
+                self.extra_modifiers.remove(m)
+                return True
+        return False
+
     # ------------------------------------------------------------ 序列化
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -265,6 +305,10 @@ class Player:
             "cards": list(self.cards),
             "stats": dict(self.stats),
             "perk": dict(self.perk),
+            "extra_modifiers": [
+                m.to_dict() if hasattr(m, "to_dict") else dict(m)
+                for m in self.extra_modifiers
+            ],
         }
 
     @classmethod
@@ -294,6 +338,12 @@ class Player:
         stats = new_stats()
         stats.update({k: int(v) for k, v in (d.get("stats") or {}).items()})
         p.stats = stats
+        from .modifiers import Modifier
+
+        p.extra_modifiers = [
+            m if isinstance(m, Modifier) else Modifier.from_dict(m)
+            for m in (d.get("extra_modifiers") or [])
+        ]
         return p
 
     def __repr__(self) -> str:  # pragma: no cover

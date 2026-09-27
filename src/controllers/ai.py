@@ -53,6 +53,9 @@ class AIController(BaseController):
         self._waited = 0.0
         self._cards_used_turn = -1
         self._cards_used_count = 0
+        self.persona = Personality.load(Personality.BALANCED)
+        self._acted_this_turn: set[str] = set()
+        self.registry = None
         self.last_thought = ""
 
     # ---------------------------------------------------------------- 主循环
@@ -75,6 +78,7 @@ class AIController(BaseController):
         if decision.id != self._decision_id:
             self._decision_id = decision.id
             self._waited = 0.0
+            self.registry = getattr(engine, "card_registry", None)
             self._plan = self._decide(decision, state, engine)
 
         if self._plan is None:
@@ -122,6 +126,12 @@ class AIController(BaseController):
                 return self._decide_own_property(decision, state, player)
             if kind == DecisionKind.CARD_DICE_VALUE:
                 return self._decide_dice_value(decision, state, player)
+            if kind == DecisionKind.DEBT_RESOLUTION:
+                return self._decide_debt(decision, state, player)
+            if kind == DecisionKind.SHOP:
+                return self._decide_shop(decision, state, player)
+            if kind == DecisionKind.BANKRUPTCY:
+                return self._fallback(decision)
         except Exception:  # AI 出错不能拖垮整局
             return self._fallback(decision)
 
@@ -145,12 +155,21 @@ class AIController(BaseController):
         if self._cards_used_turn != state.turn_number:
             self._cards_used_turn = state.turn_number
             self._cards_used_count = 0
+            self._acted_this_turn.clear()
+            self.persona = personality_of(state, self.player_id)
 
     # ---------------------------------------------------------------- 掷骰
 
     def _decide_roll(
         self, decision: PendingDecision, state: GameState, engine: Any, player
     ) -> Command:
+        # 现金充裕先赎回抵押地，紧张则抵押空地换流动性（每回合最多一次）
+        redeem_cmd = self._maybe_redeem(state, player)
+        if redeem_cmd is not None:
+            return redeem_cmd
+        cash_cmd = self._maybe_raise_cash(state, player)
+        if cash_cmd is not None:
+            return cash_cmd
         if self._cards_used_count < 1:
             card_cmd = self._maybe_use_card(state, engine, player)
             if card_cmd is not None:
@@ -207,6 +226,7 @@ class AIController(BaseController):
         elif after < reserve * 0.7:
             score -= 20
 
+        score += float(self.persona.get("buy_threshold", 0.0))
         if self.difficulty == Difficulty.EASY:
             score -= 12
             if self.rng.random() < 0.18:
@@ -243,6 +263,7 @@ class AIController(BaseController):
         if player.has_status("upgrade_discount"):
             score += 25
 
+        score += float(self.persona.get("upgrade_threshold", 0.0))
         if self.difficulty == Difficulty.EASY:
             score -= 15
 
@@ -375,6 +396,211 @@ class AIController(BaseController):
                 best_score = score
                 best_opt = opt
         return self._resolve(decision, (best_opt or options[0]).id)
+
+
+    # ---------------------------------------------------------------- 债务处理
+
+    def _decide_debt(self, decision, state: GameState,
+                     player) -> Command:
+        """在债务处理里挑一条对资产伤害最小的路。
+
+        优先级：
+        1. 先抵押空地 —— 保留产权，之后还能赎回；
+        2. 抵押不够时，卖等级最低、最便宜的（保留垄断区与核心地标）；
+        3. 若能一次操作就凑够，优先选金额恰好够的那一项，避免过度变卖。
+        """
+        options = [o for o in decision.options if o.enabled and o.id != "declare"]
+        if not options:
+            declare = decision.option("declare")
+            return self._resolve(decision, declare.id if declare else decision.options[-1].id)
+
+        shortfall = int(decision.context.get("shortfall", 0))
+        scored = []
+        for opt in options:
+            prop = state.properties.get(str(opt.payload.get("property_id", "")))
+            if prop is None:
+                continue
+            amount = 0
+            try:
+                amount = int(str(opt.label).rsplit("+", 1)[-1].replace(",", "").strip())
+            except (ValueError, IndexError):
+                amount = 0
+            is_mortgage = opt.command_type == "MORTGAGE_PROPERTY"
+
+            score = 0.0
+            # 抵押优于出售
+            score += 40.0 if is_mortgage else 0.0
+            # 空地优于有建筑
+            score += 12.0 * (3 - min(3, prop.level))
+            # 便宜的优于贵的；垄断区的地产要保住
+            score -= prop.price / 1200.0
+            if prop.district and state.district_owned_all(player.id, prop.district):
+                score -= 25.0
+            # 这笔操作能不能一次解决问题
+            if shortfall > 0 and amount >= shortfall:
+                score += 30.0
+            # 超出欠款太多会浪费资产
+            if shortfall > 0 and amount > shortfall * 2:
+                score -= 12.0
+            scored.append((score, opt))
+
+        if not scored:
+            return self._fallback(decision)
+        scored.sort(key=lambda x: -x[0])
+        self.last_thought = f"债务处理：{scored[0][1].label}"
+        return self._resolve(decision, scored[0][1].id)
+
+    # ---------------------------------------------------------------- 商店
+
+    def _decide_shop(self, decision, state: GameState,
+                     player) -> Command:
+        """按当前处境挑道具：缺钱先买现金卡，有地先买升级卡，领先就买攻击卡。"""
+        from ..game import economy as econ
+
+        reserve = self._reserve(state, player)
+        richest = self._richest_opponent(state, player)
+        owned = state.properties_of(player.id)
+        upgradeable = [p for p in owned if not p.is_max_level]
+        dangerous = self._incoming_risk(state, player)
+
+        best = None
+        best_score = 0.0
+        for opt in decision.options:
+            if not opt.enabled or opt.command_type != "BUY_SHOP_CARD":
+                continue
+            cid = str(opt.payload.get("card_id", ""))
+            card = self.registry.get(cid) if self.registry else None
+            if card is None:
+                continue
+            price = getattr(card, "shop_price", 0) or 0
+            if player.money - price < reserve * 0.2:
+                continue
+
+            score = 0.0
+            kind = card.effect.get("kind", "")
+            if cid == "card_cash":
+                score = 45.0 if player.money < reserve else 8.0
+            elif cid == "card_free_upgrade":
+                score = 55.0 if upgradeable else -50.0
+            elif kind == "status" and card.effect.get("status") == "free_rent":
+                score = 40.0 if dangerous > 0 else 12.0
+            elif cid == "card_double_rent":
+                score = 30.0 + 6.0 * len(owned)
+            elif kind in ("steal", "wealth_tax"):
+                score = 24.0 + (10.0 if richest and richest.money > 4000 else 0.0)
+            elif kind in ("apply_status_to_target", "downgrade_property",
+                          "swap_property"):
+                score = 22.0 if richest else -20.0
+            elif kind == "place_barrier":
+                score = 18.0
+            elif kind == "extra_turn":
+                score = 34.0
+            elif cid == "card_teleport":
+                score = 26.0
+            elif kind == "gain_money":
+                score = 30.0 if player.money < reserve else 10.0
+            else:
+                score = 14.0
+
+            # 打折更像白捡
+            if price > 0:
+                score += max(0.0, (1400 - price) / 120.0)
+            score *= self.persona.get("attack_bias", 1.0) if kind in (
+                "steal", "wealth_tax", "downgrade_property", "swap_property",
+                "apply_status_to_target") else 1.0
+
+            if score > best_score:
+                best_score = score
+                best = opt
+
+        if best is not None and best_score >= 18.0:
+            self.last_thought = f"商店买入 {best.label}"
+            return self._resolve(decision, best.id)
+        leave = decision.option("leave")
+        return self._resolve(decision, leave.id if leave else decision.options[-1].id)
+
+    def _incoming_risk(self, state: GameState, player) -> int:
+        """粗略评估「前方可能踩到的高租金地产」数量。"""
+        risk = 0
+        for step in (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12):
+            idx = (player.position + step) % state.board.tile_count
+            prop = state.property_at(idx)
+            if prop is None or prop.owner_id in (None, player.id):
+                continue
+            if prop.level >= 1 or state.district_owned_all(prop.owner_id, prop.district):
+                risk += 1
+        return risk
+
+    # ---------------------------------------------------------------- 主动理财
+
+    def _maybe_redeem(self, state: GameState, player) -> Command | None:
+        """现金充裕时把手里的抵押地赎回来 —— 抵押中不能收租，长期持有是亏的。"""
+        from ..game import economy as econ
+
+        reserve = self._reserve(state, player)
+        if player.money < reserve * 1.4:
+            return None
+        candidates = []
+        for prop in state.properties_of(player.id):
+            if not prop.mortgaged:
+                continue
+            cost = econ.redeem_cost(prop)
+            if player.money - cost < reserve * 0.9:
+                continue
+            # 优先赎回租金潜力大的（垄断区的优先）
+            gain = prop.rent_table[0]
+            if prop.district and state.district_owned_all(player.id, prop.district):
+                gain *= 3
+            candidates.append((gain, cost, prop))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda x: (-x[0], x[1]))
+        prop = candidates[0][2]
+        key = f"redeem:{prop.id}"
+        if key in self._acted_this_turn:
+            return None
+        self._acted_this_turn.add(key)
+        self.last_thought = f"现金充裕，赎回 {prop.name}"
+        return Command(
+            ctype=CommandType.REDEEM_PROPERTY,
+            player_id=self.player_id,
+            payload={"property_id": prop.id},
+        )
+
+    def _maybe_raise_cash(self, state: GameState, player) -> Command | None:
+        """现金低于安全线且有空地时，主动抵押一块换现金（每回合最多一次）。
+
+        这是「会玩」的体现：与其等着被高额租金打到债务处理，不如提前把
+        空地抵押出去换流动性。
+        """
+        if player.money >= self._reserve(state, player):
+            return None
+        if not player.has_status("protected"):
+            pass
+        from ..game import economy as econ
+
+        candidates = []
+        for prop in state.properties_of(player.id):
+            ok, _ = econ.can_mortgage(prop)
+            if not ok:
+                continue
+            value, _ = econ.mortgage_value(state, player, prop)
+            candidates.append((value, prop))
+        if not candidates:
+            return None
+        # 抵押最便宜的一块，代价最小
+        candidates.sort(key=lambda x: x[1].price)
+        prop = candidates[0][1]
+        key = f"mortgaged:{prop.id}"
+        if key in self._acted_this_turn:
+            return None
+        self._acted_this_turn.add(key)
+        self.last_thought = f"现金紧张，抵押 {prop.name}"
+        return Command(
+            ctype=CommandType.MORTGAGE_PROPERTY,
+            player_id=self.player_id,
+            payload={"property_id": prop.id},
+        )
 
     # ---------------------------------------------------------------- 道具
 
@@ -556,6 +782,7 @@ class AIController(BaseController):
     def _reserve(self, state: GameState, player) -> float:
         """安全现金线：随游戏推进下降（后期需要激进投资）。"""
         base = float(state.rules.get("ai_safety_reserve", 2500))
+        base *= float(self.persona.get("reserve_multiplier", 1.0))
         round_factor = max(0.35, 1.0 - state.round_number * 0.03)
         risk = 1.0
         if player.in_jail:
@@ -584,3 +811,60 @@ class AIController(BaseController):
 
 def make_ai(player_id: str, difficulty: str = Difficulty.NORMAL, seed: int | None = None) -> AIController:
     return AIController(player_id, difficulty=difficulty, seed=seed)
+
+
+# ==================================================================== 人格
+
+class Personality:
+    """AI 策略倾向。不同角色默认绑定不同人格，玩家不需要额外配置。"""
+
+    STEADY = "steady"
+    BALANCED = "balanced"
+    AGGRESSIVE = "aggressive"
+
+    #: 内置默认值（data/characters.json 里的 ai_personalities 会覆盖）
+    DEFAULTS: dict[str, dict[str, float]] = {
+        STEADY: {"name": "稳健型", "reserve_multiplier": 1.6,
+                 "buy_threshold": 12, "upgrade_threshold": 6, "attack_bias": 0.7},
+        BALANCED: {"name": "均衡型", "reserve_multiplier": 1.0,
+                   "buy_threshold": 0, "upgrade_threshold": 0, "attack_bias": 1.0},
+        AGGRESSIVE: {"name": "激进型", "reserve_multiplier": 0.6,
+                     "buy_threshold": -14, "upgrade_threshold": -8, "attack_bias": 1.4},
+    }
+
+    @classmethod
+    def load(cls, key: str) -> dict[str, float]:
+        """读取人格参数；优先用 data/characters.json 里的定义。"""
+        key = key if key in cls.DEFAULTS else cls.BALANCED
+        params = dict(cls.DEFAULTS[key])
+        try:
+            from ..game.setup import load_characters
+
+            doc = load_characters().get("ai_personalities") or {}
+            if key in doc:
+                for k, v in doc[key].items():
+                    if k in ("reserve_multiplier", "buy_threshold",
+                             "upgrade_threshold", "attack_bias"):
+                        params[k] = float(v)
+                    elif k == "name":
+                        params["name"] = str(v)
+        except Exception:
+            pass
+        params["key"] = key
+        return params
+
+
+def personality_of(state, player_id: str) -> dict[str, float]:
+    """从玩家的角色定义里取出人格参数。"""
+    player = state.player(player_id)
+    key = Personality.BALANCED
+    if player is not None:
+        try:
+            from ..game.setup import character_by_id
+
+            char = character_by_id(player.character_id) or {}
+            key = char.get("personality") or Personality.BALANCED
+        except Exception:
+            key = Personality.BALANCED
+    return Personality.load(key)
+

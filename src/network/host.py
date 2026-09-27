@@ -59,6 +59,8 @@ class GameHost:
         min_players: int = 2,
         anim_speed: float = 1.0,
         difficulty: str = "normal",
+        map_file: str = "default_map.json",
+        preset: str = "standard",
     ) -> None:
         self.port = int(port)
         self.anim_speed = anim_speed
@@ -69,7 +71,9 @@ class GameHost:
             max_players=max_players,
             min_players=min_players,
             port=self.port,
+            preset=preset,
         )
+        self.lobby.set_map(map_file)
         self.engine: GameEngine | None = None
         self.errors: list[str] = []
         self.notices: list[str] = []
@@ -285,6 +289,19 @@ class GameHost:
                                      str(msg.get("color_id", "")))
             self.broadcast_lobby()
             return
+        if mtype == proto.MessageType.SET_MAP:
+            self._require_host(session)
+            if self.lobby.set_map(str(msg.get("map_file", ""))):
+                self.notices.append(f"地图切换为「{self.lobby.map_name}」")
+            self.broadcast_lobby()
+            return
+        if mtype == proto.MessageType.SET_PRESET:
+            self._require_host(session)
+            if self.lobby.set_preset(str(msg.get("preset", "standard"))):
+                self.notices.append(
+                    f"规则切换为「{self.lobby.preset_label()}」")
+            self.broadcast_lobby()
+            return
         if mtype == proto.MessageType.ADD_AI:
             self._require_host(session)
             self.lobby.add_ai(character_id=str(msg.get("character_id", "")),
@@ -482,7 +499,9 @@ class GameHost:
                 "is_host": s.is_host,
             })
 
-        self.engine = create_engine(specs, anim_speed=self.anim_speed)
+        self.engine = create_engine(
+            specs, anim_speed=self.anim_speed,
+            map_file=self.lobby.map_file, preset=self.lobby.preset)
         for s in self.lobby.sessions:
             if s.is_ai:
                 self.engine.bind_controller(

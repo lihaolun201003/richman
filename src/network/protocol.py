@@ -15,7 +15,7 @@ import struct
 from typing import Any
 
 #: 协议版本。任何不兼容的字段变更都要 +1
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 
 #: 单条消息最大长度（16MB），防止异常数据撑爆内存
 MAX_MESSAGE_BYTES = 16 * 1024 * 1024
@@ -40,6 +40,8 @@ class MessageType:
     LOBBY_STATE = "LOBBY_STATE"
     PLAYER_READY = "PLAYER_READY"
     SET_CHARACTER = "SET_CHARACTER"
+    SET_MAP = "SET_MAP"
+    SET_PRESET = "SET_PRESET"
     ADD_AI = "ADD_AI"
     REMOVE_AI = "REMOVE_AI"
     KICK = "KICK"

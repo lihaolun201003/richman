@@ -131,7 +131,9 @@ def test_card_effects_have_handler(engine):
     reg = engine.card_registry
     kinds = {c.effect.get("kind") for c in reg.all()}
     known = {"status", "gain_money", "teleport", "swap_position", "steal",
-             "apply_status_to_target", "place_barrier", "free_upgrade"}
+             "apply_status_to_target", "place_barrier", "free_upgrade",
+             "downgrade_property", "swap_property", "extra_turn", "leave_jail",
+             "clear_negative", "wealth_tax"}
     assert kinds <= known, f"存在未实现的卡牌效果：{kinds - known}"
 
 
@@ -154,15 +156,30 @@ def test_use_card_gain_money(engine_no_ai):
 
 
 def test_use_card_not_own_turn_rejected(engine_no_ai):
+    """非「任意时刻」的卡在别人回合不能使用。"""
+    eng = engine_no_ai
+    st = eng.state
+    player = st.players[0]
+    st.current_player_id = st.players[1].id
+    player.cards.append("card_double_rent")      # timing = pre_roll
+    result = eng._use_card_command(
+        player, Command(CommandType.USE_CARD, player.id, {"card_id": "card_double_rent"}))
+    assert not result.ok
+    assert "掷骰前" in result.reason or "自己回合" in result.reason
+
+
+def test_any_turn_card_allowed_off_turn(engine_no_ai):
+    """标注 any_turn 的应急卡（现金卡）在别人回合也能用。"""
     eng = engine_no_ai
     st = eng.state
     player = st.players[0]
     st.current_player_id = st.players[1].id
     player.cards.append("card_cash")
+    before = player.money
     result = eng._use_card_command(
         player, Command(CommandType.USE_CARD, player.id, {"card_id": "card_cash"}))
-    assert not result.ok
-    assert "自己回合" in result.reason
+    assert result.ok
+    assert player.money > before
 
 
 def test_use_card_without_owning_rejected(engine_no_ai):

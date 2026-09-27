@@ -334,4 +334,5 @@ def test_engine_runs_full_game(engine):
     assert st.game_over
     assert st.winner_id is not None
     assert st.player(st.winner_id) is not None
-    assert len(st.active_players()) == 1
+    # 正常结束只剩 1 人；若因到达轮数上限而结束，可能还有多人存活
+    assert 1 <= len(st.active_players()) <= len(st.players)
