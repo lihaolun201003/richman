@@ -66,6 +66,46 @@ class PlayerSession:
         return self.conn.alive and not self.disconnected
 
     @property
+    def disconnected_seconds(self) -> float:
+        """已掉线多少秒（没掉线时返回 0）。"""
+        if not self.disconnected or not self.disconnected_at:
+            return 0.0
+        return max(0.0, time.time() - self.disconnected_at)
+
+    def presence_state(self) -> tuple[str, str]:
+        """返回 (状态码, 给玩家看的短标签)。
+
+        状态码与 UI 一一对应，避免每个界面各自拼状态字符串：
+            ai / ai_takeover / disconnected / host / ready / idle
+        """
+        if self.is_ai:
+            return "ai", "电脑"
+        if self.disconnected and self.bot_takeover:
+            return "ai_takeover", "AI 接管"
+        if self.disconnected:
+            return "disconnected", "掉线"
+        if self.is_host:
+            return "host", "房主"
+        if self.ready:
+            return "ready", "已准备"
+        return "idle", "未准备"
+
+    def presence_detail(self) -> str:
+        """状态旁边的一行说明（掉线几秒 / 已准备 / 房主不用准备）。"""
+        state, _ = self.presence_state()
+        if state == "disconnected":
+            return f"掉线 {int(self.disconnected_seconds)} 秒，等待重连"
+        if state == "ai_takeover":
+            return f"掉线 {int(self.disconnected_seconds)} 秒，AI 临时接管"
+        if self.is_ai:
+            return "电脑玩家"
+        if state == "host":
+            return "房主不需要准备"
+        if state == "ready":
+            return "等待房主开始"
+        return "等待准备"
+
+    @property
     def participant(self) -> bool:
         """是否算作一名参与者（用于开局人数判断）。"""
         return self.is_ai or self.connected or self.is_host
@@ -82,6 +122,7 @@ class PlayerSession:
         self.last_seen = time.time()
 
     def to_dict(self, include_token: bool = False) -> dict[str, Any]:
+        presence, presence_label = self.presence_state()
         d = {
             "player_id": self.player_id,
             "name": self.name,
@@ -93,7 +134,11 @@ class PlayerSession:
             "ready": self.ready,
             "connected": self.connected,
             "disconnected": self.disconnected,
+            "disconnected_seconds": int(self.disconnected_seconds),
             "bot_takeover": self.bot_takeover,
+            "presence": presence,
+            "presence_label": presence_label,
+            "presence_detail": self.presence_detail(),
         }
         if include_token:
             d["reconnect_token"] = self.reconnect_token

@@ -1,0 +1,29 @@
+{"t": 0.145, "role": "client", "kind": "started", "pid": 66460, "python": "3.10.11"}
+{"t": 0.652, "role": "client", "kind": "stage", "stage": "lan_setup"}
+{"t": 0.706, "role": "client", "kind": "join_room", "host": "127.0.0.1", "port": 28191}
+{"t": 0.707, "role": "client", "kind": "stage", "stage": "connecting"}
+{"t": 0.724, "role": "client", "kind": "joined", "player_id": "pca63a8ce", "room": "双进程测试房间", "via": "127.0.0.1:28191"}
+{"t": 0.725, "role": "client", "kind": "stage", "stage": "client_lobby"}
+{"t": 1.268, "role": "client", "kind": "ready"}
+{"t": 1.268, "role": "client", "kind": "stage", "stage": "playing"}
+{"t": 1.285, "role": "client", "kind": "heartbeat", "round": 1, "turn": 0, "phase": "GAME_SETUP", "current": "pc633e257", "decision": "", "revision": 2}
+{"t": 4.294, "role": "client", "kind": "heartbeat", "round": 1, "turn": 2, "phase": "ARRIVED", "current": "pca63a8ce", "decision": "", "revision": 14}
+{"t": 7.302, "role": "client", "kind": "heartbeat", "round": 1, "turn": 3, "phase": "TURN_END", "current": "pa914c6b7", "decision": "", "revision": 23}
+{"t": 10.315, "role": "client", "kind": "heartbeat", "round": 2, "turn": 5, "phase": "TURN_START", "current": "pc633e257", "decision": "", "revision": 32}
+{"t": 13.325, "role": "client", "kind": "heartbeat", "round": 2, "turn": 7, "phase": "TURN_START", "current": "pa914c6b7", "decision": "", "revision": 45}
+{"t": 15.024, "role": "client", "kind": "simulated_cable_pull", "turn": 10}
+{"t": 15.025, "role": "client", "kind": "stage", "stage": "disconnected"}
+{"t": 49.664, "role": "client", "kind": "cable_plugged_back"}
+{"t": 49.664, "role": "client", "kind": "stage", "stage": "plug_back"}
+{"t": 49.714, "role": "client", "kind": "reconnected", "revision": 114, "player_id": "pca63a8ce"}
+{"t": 49.714, "role": "client", "kind": "stage", "stage": "playing"}
+{"t": 49.731, "role": "client", "kind": "heartbeat", "round": 5, "turn": 17, "phase": "WAIT_ROLL", "current": "pc633e257", "decision": "roll:pc633e257", "revision": 114}
+{"t": 49.742, "role": "client", "kind": "reconnect_attempt"}
+{"t": 49.742, "role": "client", "kind": "stage", "stage": "reconnecting"}
+{"t": 49.773, "role": "client", "kind": "reconnected", "revision": 114, "player_id": "pca63a8ce"}
+{"t": 49.773, "role": "client", "kind": "stage", "stage": "playing"}
+{"t": 49.791, "role": "client", "kind": "rounds_done", "round": 5, "turn": 17, "revision": 114, "hash": "22e17e4bb9b591f9"}
+{"t": 49.791, "role": "client", "kind": "stage", "stage": "finish_wait"}
+{"t": 53.277, "role": "client", "kind": "stage", "stage": "done"}
+{"kind": "summary", "role": "client", "count": 27}
+{"kind": "summary", "role": "client", "count": 27}

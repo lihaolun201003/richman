@@ -84,6 +84,13 @@ class AudioManager:
             "win": ("win.wav", dict(freq=1046, ms=700, wave="triangle", decay=1.6)),
             "error": ("error.wav", dict(freq=200, ms=200, wave="square", decay=4.0)),
             "turn": ("turn.wav", dict(freq=740, ms=150, wave="sine", decay=4.0)),
+            "card": ("card.wav", dict(freq=988, ms=160, wave="triangle", decay=5.0,
+                                      volume=0.55)),
+            # 联机专用：掉线是下沉的方波，重连是上行的三角波，方向本身就是信息
+            "disconnect": ("disconnect.wav", dict(freq=196, ms=420, wave="square",
+                                                  decay=2.4, volume=0.55)),
+            "reconnect": ("reconnect.wav", dict(freq=784, ms=320, wave="triangle",
+                                                decay=2.8, volume=0.6)),
         }
         for name, (filename, kwargs) in specs.items():
             sound = self._load_file(filename)

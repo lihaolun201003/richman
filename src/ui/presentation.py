@@ -5,13 +5,19 @@
 - **演出不阻塞引擎**。队列只控制「画什么、画多久」，引擎按自己的阶段推进；
 - 所有演出都能被点击跳过，且会自动超时消失，因此不会把玩家卡住。
 
+v0.4 新增**优先级**：破产、胜利、掉线、重连这类关键事件必须能盖住
+普通收租与 AI 提示，反过来则不允许 —— 否则一局里最重要的时刻
+会被一句「XX 购买了 XX」挤掉。
+
+    Critical  破产 / 胜利 / 掉线 / 重连
+    Major     事件卡 / 垄断 / 大额金钱
+    Normal    AI 使用道具 / 抵达地块 / 普通资金浮字
+    Ambient   环境提示
+
 三类演出：
     MoneyPop     资金浮动数字（来自 EconomyLedger，含对手方信息）
     EventCard    事件卡（福运 / 灾祸 / 机遇），带极性、标题、描述、实际效果
     ActionBanner 一句话横幅（AI 使用道具、玩家掉线、破产等）
-
-`Presenter` 一次只显示一个主演出（横幅可以叠在下面），
-新演出进来时旧演出立刻淡出，避免糊成一团。
 """
 from __future__ import annotations
 
@@ -24,6 +30,12 @@ from ..game.format import money_delta
 from ..game.ledger import Reason
 from ..utils.easing import clamp, ease_out_back, ease_out_cubic
 from . import icons, theme
+
+#: 演出优先级（数字越小越优先，越不可被打断）
+PRIORITY_CRITICAL = 0
+PRIORITY_MAJOR = 1
+PRIORITY_NORMAL = 2
+PRIORITY_AMBIENT = 3
 
 #: 极性 → (标题, 强调色, 图标)
 POLARITY_STYLE = {
@@ -223,13 +235,19 @@ class ActionBanner:
     """一句话横幅：AI 使用道具、掉线、破产、重连等短事件。"""
 
     def __init__(self, text: str, *, sub: str = "", color_name: str = "info",
-                 icon: str = "", duration: float = 2.0) -> None:
+                 icon: str = "", duration: float = 2.0,
+                 priority: int = PRIORITY_NORMAL) -> None:
         self.text = text
         self.sub = sub
         self.color_name = color_name
         self.icon = icon
         self.duration = max(0.6, duration)
+        self.priority = int(priority)
         self.t = 0.0
+
+    @property
+    def critical(self) -> bool:
+        return self.priority <= PRIORITY_CRITICAL
 
     def update(self, dt: float) -> bool:
         self.t += dt
@@ -244,19 +262,21 @@ class ActionBanner:
         if alpha <= 4:
             return
         accent = theme.color(self.color_name)
-        font = fonts.sized(theme.FONT["h3"], True)
+        font = fonts.sized(theme.FONT["h3"], True) if not self.critical \
+            else fonts.sized(theme.FONT["h2"], True)
         sub_font = fonts.sized(theme.FONT["tiny"])
         text = self.text
         w = font.size(text)[0] + 64
         if self.sub:
             w = max(w, sub_font.size(self.sub)[0] + 64)
-        rect = pygame.Rect(0, 0, int(w), 46 if not self.sub else 62)
+        height = 46 if not self.sub else 62
+        rect = pygame.Rect(0, 0, int(w), height)
         rect.midtop = (800, y - int((1.0 - appear) * 16))
 
         layer = pygame.Surface(rect.size, pygame.SRCALPHA)
         theme.rounded_rect(layer, layer.get_rect(), theme.color("panel_alt", 238), radius=12)
         theme.rounded_rect(layer, layer.get_rect(), None, radius=12, border=accent,
-                           border_width=2)
+                           border_width=3 if self.critical else 2)
         theme.rounded_rect(layer, pygame.Rect(0, 8, 5, rect.height - 16), accent, radius=2)
         if self.icon:
             icons.draw_icon(layer, self.icon, pygame.Rect(16, 14, 20, 20), accent,
@@ -271,15 +291,102 @@ class ActionBanner:
         surface.blit(layer, rect.topleft)
 
 
+class BankruptcyBanner:
+    """破产演出：整局最重要的时刻之一，必须一眼看懂「怎么死的、地归谁了」。
+
+    显示内容全部来自破产事件里已经算好的数字（只读，不改规则）：
+    债务额、破产前总资产、地产数量、债权人。
+    """
+
+    def __init__(self, name: str, *, debt: int, assets: int, properties: int,
+                 creditor: str = "", reason: str = "", duration: float = 4.2) -> None:
+        self.name = name
+        self.debt = int(debt)
+        self.assets = int(assets)
+        self.properties = int(properties)
+        self.creditor = creditor
+        self.reason = reason
+        self.duration = max(1.5, duration)
+        self.t = 0.0
+        self.priority = PRIORITY_CRITICAL
+
+    def update(self, dt: float) -> bool:
+        self.t += dt
+        return self.t < self.duration
+
+    @property
+    def rect(self) -> pygame.Rect:
+        r = pygame.Rect(0, 0, 720, 152)
+        r.midtop = (800, 150)
+        return r
+
+    def draw(self, surface: pygame.Surface, fonts: theme.FontManager) -> None:
+        appear = ease_out_back(clamp(self.t / 0.35, 0.0, 1.0))
+        fade = clamp((self.duration - self.t) / 0.45, 0.0, 1.0)
+        alpha = int(255 * min(1.0, fade))
+        if alpha <= 4:
+            return
+        rect = self.rect
+        offset = int((1.0 - appear) * -24)
+        rect = rect.move(0, offset)
+
+        layer = pygame.Surface(rect.size, pygame.SRCALPHA)
+        local = layer.get_rect()
+        theme.rounded_rect(layer, local, theme.color("panel_alt"), radius=16)
+        theme.rounded_rect(layer, local, None, radius=16,
+                           border=theme.color("danger"), border_width=3)
+        theme.rounded_rect(layer, pygame.Rect(0, 0, local.width, 8),
+                           theme.color("danger"), radius=4)
+
+        icons.draw_icon(layer, "alert", pygame.Rect(24, 24, 30, 30),
+                        theme.color("danger"), theme.color("shadow"))
+        theme.draw_text(layer, f"{self.name} 破产退出",
+                        fonts.sized(theme.FONT["big"], True), theme.color("danger"),
+                        (66, 24))
+        if self.reason:
+            theme.draw_text(layer, f"原因：{self.reason}",
+                            fonts.sized(theme.FONT["small"]), theme.color("text_dim"),
+                            (local.width - 24, 32), anchor="topright")
+
+        # 三个关键数字：欠了多少 / 还剩多少 / 几块地
+        stats = [
+            ("债务", f"{self.debt:,}", "danger"),
+            ("破产时资产", f"{self.assets:,}", "text"),
+            ("地产", f"{self.properties} 块", "text"),
+        ]
+        x = 30
+        for label, value, color in stats:
+            theme.draw_text(layer, label, fonts.sized(theme.FONT["tiny"]),
+                            theme.color("text_mute"), (x, 78))
+            theme.draw_text(layer, value, fonts.sized(theme.FONT["h3"], True),
+                            theme.color(color), (x, 96))
+            x += 190
+
+        tail = (f"资产已移交给 {self.creditor}" if self.creditor
+                else "资产已收归银行")
+        theme.draw_text(layer, tail, fonts.sized(theme.FONT["small"]),
+                        theme.color("text_dim"), (local.width - 24, 100),
+                        anchor="topright")
+        layer.set_alpha(alpha)
+        surface.blit(layer, rect.topleft)
+
+
 # ==================================================================== 管理器
 
 class Presenter:
-    """演出队列：一次一个主演出，横幅可并存，全部可点击跳过。"""
+    """演出队列：一次一个主演出，横幅可并存，全部可点击跳过。
+
+    优先级规则（v0.4）：
+    - 高优先级横幅（破产 / 掉线 / 重连 / 胜利）会**清掉**正在显示的低优先级横幅；
+    - 低优先级横幅**不会**打断高优先级横幅；
+    - 事件卡与破产量级演出独立于横幅层，但会被高优先级横幅压在下层显示。
+    """
 
     def __init__(self) -> None:
         self.money: list[MoneyPop] = []
         self.cards: list[EventCard] = []
         self.banners: list[ActionBanner] = []
+        self.bankruptcy: BankruptcyBanner | None = None
         self._card_gap = 0.0
 
     # ---- 入队
@@ -298,9 +405,16 @@ class Presenter:
             del self.cards[:-3]
 
     def push_banner(self, banner: ActionBanner) -> None:
+        # 高优先级把低优先级挤掉；反过来不允许 —— 破产演出不能被收租提示盖住
+        self.banners = [b for b in self.banners if b.priority <= banner.priority]
         self.banners.append(banner)
         if len(self.banners) > 4:
             del self.banners[:-4]
+
+    def push_bankruptcy(self, banner: BankruptcyBanner) -> None:
+        """破产是整局最高优先级的演出：清掉所有横幅，给玩家看清楚。"""
+        self.bankruptcy = banner
+        self.banners = [b for b in self.banners if b.priority <= PRIORITY_MAJOR]
 
     # ---- 状态
 
@@ -308,21 +422,34 @@ class Presenter:
     def has_card(self) -> bool:
         return bool(self.cards)
 
+    @property
+    def busy_critical(self) -> bool:
+        """是否有「关键演出」正在播放（破产 / 掉线级别）。"""
+        if self.bankruptcy is not None and self.bankruptcy.t < self.bankruptcy.duration:
+            return True
+        return any(b.critical for b in self.banners)
+
     def clear(self) -> None:
         self.money.clear()
         self.cards.clear()
         self.banners.clear()
+        self.bankruptcy = None
         self._card_gap = 0.0
 
     def update(self, dt: float) -> None:
         self.money = [m for m in self.money if m.update(dt)]
         self.banners = [b for b in self.banners if b.update(dt)]
         self.cards = [c for c in self.cards if c.update(dt)]
+        if self.bankruptcy is not None and not self.bankruptcy.update(dt):
+            self.bankruptcy = None
 
     def dismiss_card(self) -> bool:
         """点击跳过当前事件卡。返回是否真的跳过了。"""
         if self.cards:
             self.cards[0].t = self.cards[0].duration
+            return True
+        if self.bankruptcy is not None:
+            self.bankruptcy.t = self.bankruptcy.duration
             return True
         return False
 
@@ -335,10 +462,15 @@ class Presenter:
 
     def draw_overlay(self, surface: pygame.Surface, fonts: theme.FontManager) -> None:
         """覆盖层演出：事件卡（后进先出，只画最上面一张）与横幅。"""
+        # 破产演出在最上层：这个时刻不该被任何东西挡住
+        if self.bankruptcy is not None:
+            self.bankruptcy.draw(surface, fonts)
         if self.cards:
             self.cards[-1].draw(surface, fonts)
-        for banner in self.banners[-2:]:
-            banner.draw(surface, fonts)
+        # 关键横幅画在更高的位置，普通横幅在下，避免互相遮挡
+        ordered = sorted(self.banners[-3:], key=lambda b: -b.priority)
+        for i, banner in enumerate(ordered):
+            banner.draw(surface, fonts, y=620 + i * 70)
 
 
 def describe_ledger_entry(entry: Any, players: dict[str, Any]) -> tuple[str, str, str, str]:

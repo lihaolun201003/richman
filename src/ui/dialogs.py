@@ -299,16 +299,30 @@ class GameOverDialog(Modal):
                  on_exit: Callable[[], None] | None = None,
                  can_restart: bool = True,
                  client_mode: bool = False,
-                 exit_label: str = "返回主菜单") -> None:
+                 exit_label: str = "返回主菜单",
+                 timeline: list[dict[str, Any]] | None = None) -> None:
         super().__init__()
         self.ranking = ranking
         self.rounds = rounds
         self.stats = stats
         self.client_mode = client_mode
         self.exit_label = "返回大厅" if client_mode else exit_label
+        self.timeline = list(timeline or [])
+        self.view = "summary"
         self.rect = pygame.Rect(0, 0, 1320, 780)
         self.rect.center = (SCREEN_W // 2, SCREEN_H // 2)
         self.buttons = []
+        # 两个视图切换：总结 / 本局时间线（时间线硬塞进总结会挤成一团）
+        self.tab_buttons: list[Button] = [
+            Button(pygame.Rect(self.rect.x + 32, self.rect.bottom - 72, 132, 48),
+                   "比赛结果", on_click=lambda: self._set_view("summary"),
+                   style="accent", font_size=16),
+            Button(pygame.Rect(self.rect.x + 176, self.rect.bottom - 72, 132, 48),
+                   "本局时间线", on_click=lambda: self._set_view("timeline"),
+                   style="secondary", font_size=16),
+        ]
+        if not self.timeline:
+            self.tab_buttons[1].set_enabled(False, "这一局还没有产生里程碑")
         if client_mode:
             # 联机结算：只有房主能重新开始，客户端显示等待
             if on_exit is not None:
@@ -327,22 +341,104 @@ class GameOverDialog(Modal):
                 pygame.Rect(self.rect.centerx - 140, self.rect.bottom - 74, 280, 54),
                 self.exit_label, on_click=on_exit, style="accent", icon="exit"))
 
+    def _set_view(self, view: str) -> None:
+        self.view = view
+        for button, key in zip(self.tab_buttons, ("summary", "timeline")):
+            button.style = "accent" if key == view else "secondary"
+
+    # ------------------------------------------------------------ 事件
+
+    def handle_event(self, event: pygame.event.Event) -> bool:
+        for button in self.tab_buttons:
+            if button.handle_event(event):
+                return True
+        return super().handle_event(event)
+
+    def update(self, dt: float) -> None:
+        super().update(dt)
+        mouse = pygame.mouse.get_pos()
+        for button in self.tab_buttons:
+            button.update(dt, mouse)
+
     # ------------------------------------------------------------ 绘制
 
     def draw(self, surface: pygame.Surface, fonts: theme.FontManager) -> None:
         self._draw_scrim(surface)
         rect = self._panel(surface, self.rect)
         self._draw_banner(surface, fonts, rect)
-        self._draw_ranking(surface, fonts, pygame.Rect(rect.x + 28, rect.y + 116, 720, 300))
-        self._draw_titles(surface, fonts, pygame.Rect(rect.x + 772, rect.y + 116, 520, 300))
-        self._draw_stats_table(surface, fonts,
-                               pygame.Rect(rect.x + 28, rect.y + 436, 1264, 262))
+        if self.view == "timeline":
+            self._draw_timeline(surface, fonts,
+                                pygame.Rect(rect.x + 28, rect.y + 116, rect.width - 56, 500))
+        else:
+            self._draw_ranking(surface, fonts, pygame.Rect(rect.x + 28, rect.y + 116, 720, 300))
+            self._draw_titles(surface, fonts, pygame.Rect(rect.x + 772, rect.y + 116, 520, 300))
+            self._draw_stats_table(surface, fonts,
+                                   pygame.Rect(rect.x + 28, rect.y + 436, 1264, 262))
         for button in self.buttons:
+            button.draw(surface, fonts)
+        for button in self.tab_buttons:
             button.draw(surface, fonts)
         if self.client_mode:
             theme.draw_text(surface, "由房主决定是否再来一局", fonts.small(),
                             theme.color("text_mute"),
                             (rect.centerx, self.buttons[0].rect.y - 22), anchor="midbottom")
+
+    def _draw_timeline(self, surface: pygame.Surface, fonts: theme.FontManager,
+                       rect: pygame.Rect) -> None:
+        """本局时间线：只列真正改变了局势的时刻，不做流水账。"""
+        theme.section_header(surface, fonts,
+                             pygame.Rect(rect.x, rect.y, rect.width, 22),
+                             "本局时间线", icon="clock",
+                             note="只记录真正改变局势的时刻")
+        body = pygame.Rect(rect.x, rect.y + 36, rect.width, rect.height - 36)
+        theme.panel(surface, body, fill="panel", radius=theme.RADIUS["lg"])
+
+        if not self.timeline:
+            theme.draw_text(surface, "这一局没有产生里程碑", fonts.body(),
+                            theme.color("text_mute"), body.center, anchor="center")
+            return
+
+        color_of = {
+            "monopoly": "accent",
+            "wealth": "success",
+            "landmark": "danger",
+            "event": "text_dim",
+            "comeback": "primary",
+        }
+        icon_of = {
+            "monopoly": "property",
+            "wealth": "coin",
+            "landmark": "alert",
+            "event": "info",
+            "comeback": "replay",
+        }
+        row_h = 34
+        max_rows = max(1, (body.height - 24) // row_h)
+        shown = self.timeline[:max_rows]
+        y = body.y + 14
+        line_x = body.x + 108
+        if len(shown) > 1:
+            pygame.draw.line(surface, theme.color("border"), (line_x, y + 13),
+                             (line_x, y + row_h * (len(shown) - 1) + 13), 2)
+        for item in shown:
+            kind = str(item.get("kind", "event"))
+            color = color_of.get(kind, "text_dim")
+            theme.draw_text(surface, f"第 {item.get('round', 0)} 轮", fonts.small(),
+                            theme.color("text_mute"), (body.x + 22, y + 5))
+            pygame.draw.circle(surface, theme.color(color), (line_x, y + 13), 6)
+            pygame.draw.circle(surface, theme.color("bg"), (line_x, y + 13), 2)
+            icons.draw_icon(surface, icon_of.get(kind, "info"),
+                            pygame.Rect(line_x + 18, y + 3, 20, 20),
+                            theme.color(color), theme.color("shadow"))
+            theme.draw_text(surface,
+                            theme.truncate(str(item.get("text", "")), fonts.body(),
+                                           body.width - 210),
+                            fonts.body(), theme.color("text"), (line_x + 48, y + 2))
+            y += row_h
+        if len(self.timeline) > len(shown):
+            theme.draw_text(surface, f"（共 {len(self.timeline)} 条里程碑，这里显示最早的部分）",
+                            fonts.tiny(), theme.color("text_mute"),
+                            (body.right - 20, body.bottom - 22), anchor="topright")
 
     def _draw_banner(self, surface: pygame.Surface, fonts: theme.FontManager,
                      rect: pygame.Rect) -> None:
@@ -715,35 +811,58 @@ class MessageDialog(Modal):
 # ==================================================================== 断线重连
 
 class ReconnectDialog(Modal):
-    """掉线后的可见流程：倒计时 + 进度条 + 放弃按钮。
+    """掉线后的可见流程：半透明覆盖层 + 重试次数 + 倒计时 + 立即重试。
+
+    设计要点（v0.4）：
+    - **不把人踢回主菜单**：掉线时游戏画面还在下面（半透明遮罩），
+      玩家能看见局面，知道「这一局还在」；
+    - 明确写出**第几次尝试**与**还剩多少秒**，而不是只转一个圈；
+    - 给两个出口：【立即重试】与【返回主菜单】，
+      玩家不必干等 30 秒，也不必被迫留在这一页。
 
     内容与实际重连逻辑（AutoReconnector / GameHost 宽限期）保持一致，
     UI 不会承诺底层做不到的事。
     """
 
     def __init__(self, reason: str, grace_sec: float = 30.0,
-                 on_give_up: Callable[[], None] | None = None) -> None:
+                 on_give_up: Callable[[], None] | None = None,
+                 on_retry: Callable[[], None] | None = None,
+                 max_attempts: int = 10,
+                 takeover_after: float = 30.0) -> None:
         super().__init__()
         self.dismissable = False
         self.reason = reason
         self.grace_sec = grace_sec
-        self.rect = pygame.Rect(0, 0, 640, 340)
+        self.takeover_after = float(takeover_after)
+        self.max_attempts = max(1, int(max_attempts))
+        self.rect = pygame.Rect(0, 0, 660, 360)
         self.rect.center = (SCREEN_W // 2, SCREEN_H // 2)
         self.status = "正在尝试重新连接…"
         self.attempts = 0
         self.remaining = grace_sec
         self.progress = 0.0
-        self.buttons = [Button(
-            pygame.Rect(self.rect.centerx - 130, self.rect.bottom - 74, 260, 50),
-            "放弃并返回主菜单", on_click=self._give_up, style="ghost", font_size=16)]
+        self.hint = ""
         self.on_give_up = on_give_up
+        self.on_retry = on_retry
         self._gave_up = False
+        self.buttons = [
+            Button(pygame.Rect(self.rect.centerx - 274, self.rect.bottom - 74, 264, 50),
+                   "立即重试", on_click=self._retry, style="accent", font_size=16,
+                   icon="refresh", tooltip="马上再试一次，不用等下一轮"),
+            Button(pygame.Rect(self.rect.centerx + 10, self.rect.bottom - 74, 264, 50),
+                   "返回主菜单", on_click=self._give_up, style="ghost", font_size=16,
+                   icon="exit", tooltip="放弃这一局并回到主菜单"),
+        ]
 
     def _give_up(self) -> None:
         self._gave_up = True
         if self.on_give_up is not None:
             self.on_give_up()
         self.close()
+
+    def _retry(self) -> None:
+        if self.on_retry is not None:
+            self.on_retry()
 
     @property
     def gave_up(self) -> bool:
@@ -757,15 +876,23 @@ class ReconnectDialog(Modal):
         self.progress = progress
         self.hint = hint
 
+    @property
+    def _scrim_alpha(self) -> int:
+        """半透明：让人看得见底下的局面，知道这一局还在。"""
+        return int(150 * ease_out_cubic(self.anim.progress))
+
     def draw(self, surface: pygame.Surface, fonts: theme.FontManager) -> None:
-        self._draw_scrim(surface)
+        layer = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        layer.fill(theme.color("overlay", self._scrim_alpha))
+        surface.blit(layer, (0, 0))
+
         rect = self._panel(surface, self.rect)
         accent = theme.color("warning")
         theme.rounded_rect(surface, pygame.Rect(rect.x, rect.y, rect.width, 8), accent,
                            radius=4)
         icons.draw_icon(surface, "network", pygame.Rect(rect.x + 34, rect.y + 28, 34, 34),
                         accent, theme.color("shadow"))
-        theme.draw_text(surface, "与房主的连接已中断", fonts.h1(), theme.color("text"),
+        theme.draw_text(surface, "与房主连接中断", fonts.h1(), theme.color("text"),
                         (rect.x + 80, rect.y + 24))
 
         theme.draw_text(surface, self.reason, fonts.small(), theme.color("text_dim"),
@@ -773,19 +900,30 @@ class ReconnectDialog(Modal):
         theme.draw_text(surface, self.status, fonts.h3(), theme.color("accent"),
                         (rect.x + 36, rect.y + 116))
 
-        bar = pygame.Rect(rect.x + 36, rect.y + 156, rect.width - 72, 12)
+        bar = pygame.Rect(rect.x + 36, rect.y + 158, rect.width - 72, 12)
         theme.progress_bar(surface, bar, 1.0 - self.progress, color_name="warning")
-        theme.draw_text(surface, f"剩余 {int(self.remaining)} 秒", fonts.small(),
-                        theme.color("text"), (rect.x + 36, rect.y + 176))
-        theme.draw_text(surface, f"已尝试 {self.attempts} 次", fonts.small(),
-                        theme.color("text_mute"), (rect.right - 36, rect.y + 176),
-                        anchor="topright")
+        theme.draw_text(surface, f"已等待 {int(self.grace_sec - self.remaining)} 秒",
+                        fonts.small(), theme.color("text"), (rect.x + 36, rect.y + 178))
+        theme.draw_text(surface,
+                        f"第 {max(1, self.attempts)}/{self.max_attempts} 次尝试",
+                        fonts.small(), theme.color("text_mute"),
+                        (rect.right - 36, rect.y + 178), anchor="topright")
 
-        note = getattr(self, "hint", "") or (
-            f"房主会为你保留座位 {int(self.grace_sec)} 秒；"
-            "超时后由 AI 接管，本局不会中断，之后仍然可以重连回来。")
-        theme.draw_wrapped(surface, note, fonts.small(), theme.color("text_mute"),
-                           pygame.Rect(rect.x + 36, rect.y + 204, rect.width - 72, 48))
+        # 过了房主宽限期就明确告诉玩家「现在是 AI 在替你打」，但不必放弃
+        elapsed = self.grace_sec - self.remaining
+        if elapsed >= self.takeover_after:
+            note = (f"已经超过 {int(self.takeover_after)} 秒，你的座位现在由 AI 临时接管；"
+                    "本局不会中断 —— 继续等，连上后会自动把控制权交还给你。")
+            color = "warning"
+        else:
+            note = (f"房主会为你保留座位 {int(self.takeover_after)} 秒；"
+                    "超时后由 AI 接管，本局不会中断。"
+                    "你可以继续等，也可以点「立即重试」。")
+            color = "text_mute"
+        if self.hint:
+            note = self.hint
+        theme.draw_wrapped(surface, note, fonts.small(), theme.color(color),
+                           pygame.Rect(rect.x + 36, rect.y + 210, rect.width - 72, 54))
         for button in self.buttons:
             button.draw(surface, fonts)
 

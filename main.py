@@ -99,6 +99,39 @@ def selftest(seconds: float) -> int:
 
     import pygame as _pg
 
+    from src.ui.game_scene import ROLL_BUTTON_RECT
+
+    def _act(scene) -> None:
+        """替真人座位做「一个正常玩家会做的操作」。
+
+        以前这里只是空转 update，玩家座位永远停在等待掷骰，
+        6 秒下来只推进了 1 个回合 —— 那种自检证明不了「能玩」。
+        """
+        modal = getattr(scene, "modal", None)
+        if modal is not None:
+            button = next((b for b in modal.buttons if b.enabled), None)
+            if button is not None:
+                for kind in (_pg.MOUSEBUTTONDOWN, _pg.MOUSEBUTTONUP):
+                    app.scenes.handle_event(_pg.event.Event(
+                        kind, {"pos": button.rect.center, "button": 1}))
+            else:
+                modal.close()
+                scene.modal = None
+            return
+        session = getattr(scene, "session", None)
+        decision = getattr(session, "decision", None) if session else None
+        if decision is None:
+            return
+        option = next((o for o in decision.options if o.enabled), None)
+        if option is None:
+            return
+        if decision.kind == "roll":
+            for kind in (_pg.MOUSEBUTTONDOWN, _pg.MOUSEBUTTONUP):
+                app.scenes.handle_event(_pg.event.Event(
+                    kind, {"pos": ROLL_BUTTON_RECT.center, "button": 1}))
+        else:
+            session.submit("RESOLVE_DECISION", {"option_id": option.id}, decision.id)
+
     deadline = _time.time() + seconds
     frames = 0
     while _time.time() < deadline and app.running:
@@ -106,6 +139,9 @@ def selftest(seconds: float) -> int:
             if event.type == _pg.QUIT:
                 app.running = False
         app.update(1 / 60)
+        scene = app.scenes.current
+        if scene is not None:
+            _act(scene)
         if frames % 20 == 0:
             app._render()
         frames += 1
@@ -119,11 +155,13 @@ def selftest(seconds: float) -> int:
     print(f"资金流水 {len(st.ledger.entries)} 条，玩家 {len(st.players)} 人，"
           f"地产 {len(st.properties)} 处")
     alive = all(p.money >= 0 or p.bankrupt for p in st.players)
-    print(f"状态检查: {'通过' if alive else '异常'}")
+    moved = st.turn_number >= 4
+    print(f"状态检查: {'通过' if alive else '异常'}"
+          f"　对局推进: {'正常' if moved else '异常（自动操作没有生效）'}")
     app._teardown_network()
     _pg.quit()
     print("启动自检完成")
-    return 0 if alive else 1
+    return 0 if (alive and moved) else 1
 
 
 def main() -> int:

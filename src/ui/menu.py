@@ -104,13 +104,32 @@ def draw_board_decor(surface: pygame.Surface, rect: pygame.Rect, t: float,
 
 
 class MenuScene(Scene):
-    """主菜单。"""
+    """主菜单。
+
+    v0.4 的两处改动：
+
+    - **按玩家要做的事分组**：以前「创建房间 / 加入房间 / 局域网诊断」与
+      「单人游戏 / 设置」平级平铺，第一次来的人要在 9 个按钮里自己找联机。
+      现在联机是一个可展开的分组，诊断也收进这一组里（不占首屏）；
+    - **修掉了底部快捷键提示与「退出游戏」按钮重叠**（v0.3 截图里
+      「Esc 退出」压在按钮文字上）。
+    """
+
+    #: 顶级按钮的纵向布局（不展开联机分组时）
+    #: TOP 必须留出标题区高度：v0.3 的标题副标题在 y=318，
+    #: 按钮若从 316 开始就会把它压住（截图里看起来像叠字）。
+    TOP = 340
+    BIG_H = 64
+    ROW_H = 46
+    ROW_GAP = 8
+    EXPAND_ROW_H = 46
 
     def __init__(self, app: Any) -> None:
         super().__init__(app)
         self.decor = FloatingDecor()
         self.board = None
         self.t = 0.0
+        self.net_expanded = False
         self._build()
 
     def _build(self) -> None:
@@ -124,35 +143,54 @@ class MenuScene(Scene):
 
         cx = 400
         width = 380
-        top = 336
-        step = 62
+        x = cx - width // 2
         self.widgets = [
-            Button(pygame.Rect(cx - width // 2, top, width, 68), "单人游戏",
+            Button(pygame.Rect(x, self.TOP, width, self.BIG_H), "单人游戏",
                    on_click=self._start_local, style="accent", icon="play",
                    subtitle="和电脑对战，立即开始"),
-            Button(pygame.Rect(cx - width // 2, top + 78, width, 50), "创建局域网房间",
-                   on_click=self._create_room, style="primary", icon="network"),
-            Button(pygame.Rect(cx - width // 2, top + 78 + step, width, 50), "加入房间",
-                   on_click=self._join_room, style="secondary", icon="network"),
-            Button(pygame.Rect(cx - width // 2, top + 78 + step * 2, width, 50),
-                   "新手教程", on_click=self._start_tutorial, style="secondary",
-                   icon="book", tooltip="3 分钟学会怎么玩（用真实规则跑的短局）"),
-            Button(pygame.Rect(cx - width // 2, top + 78 + step * 3, width, 50), "读取存档",
-                   on_click=self._load_save, style="ghost", icon="save"),
-            Button(pygame.Rect(cx - width // 2, top + 78 + step * 4, width, 50), "规则与图鉴",
-                   on_click=lambda: self.app.scenes.switch_to("help", back="menu"),
-                   style="ghost", icon="book"),
-            Button(pygame.Rect(cx - width // 2, top + 78 + step * 5, width, 50), "设置",
-                   on_click=lambda: self.app.scenes.switch_to("settings", back="menu"),
-                   style="ghost", icon="gear"),
-            Button(pygame.Rect(cx - width // 2, top + 78 + step * 6, width, 50),
-                   "局域网诊断", on_click=self._open_diag, style="ghost", icon="network",
-                   tooltip="连不上房间时先看这里：本机 IP / 端口 / 发现服务状态"),
-            Button(pygame.Rect(cx - width // 2, top + 78 + step * 7, width, 50), "退出游戏",
-                   on_click=self.app.quit, style="ghost", icon="exit"),
         ]
+        y = self.TOP + self.BIG_H + 12
+        self.net_button = Button(
+            pygame.Rect(x, y, width, self.ROW_H + 10), "局域网联机",
+            on_click=self._toggle_net, style="primary", icon="network",
+            subtitle="同一个 WiFi 就能一起玩")
+        self.widgets.append(self.net_button)
+        y += self.ROW_H + 10 + self.ROW_GAP
+
+        self.net_buttons: list[Button] = []
+        if self.net_expanded:
+            for label, action, icon, tip in (
+                ("创建房间", self._create_room, "network", "房间开在这台电脑上"),
+                ("加入房间", self._join_room, "network", "输入房主发来的地址"),
+                ("联机诊断", self._open_diag, "help", "连不上时先看这里"),
+            ):
+                btn = Button(pygame.Rect(x + 24, y, width - 24, self.EXPAND_ROW_H),
+                             label, on_click=action, style="secondary", icon=icon,
+                             tooltip=tip)
+                self.net_buttons.append(btn)
+                self.widgets.append(btn)
+                y += self.EXPAND_ROW_H + self.ROW_GAP
+            y += 4
+
+        self.main_buttons: list[Button] = []
+        for label, action, icon, tip in (
+            ("继续游戏", self._load_save, "save", "读取自动存档继续上一局"),
+            ("新手教程", self._start_tutorial, "book", "3 分钟学会怎么玩（真实规则的短局）"),
+            ("设置", lambda: self.app.scenes.switch_to("settings", back="menu"),
+             "gear", "音量 / 画面 / 节奏 / AI 速度"),
+            ("退出游戏", self.app.quit, "exit", ""),
+        ):
+            btn = Button(pygame.Rect(x, y, width, self.ROW_H), label, on_click=action,
+                         style="ghost", icon=icon, tooltip=tip)
+            self.main_buttons.append(btn)
+            self.widgets.append(btn)
+            y += self.ROW_H + self.ROW_GAP
 
     # ------------------------------------------------------------ 动作
+
+    def _toggle_net(self) -> None:
+        self.net_expanded = not self.net_expanded
+        self._build()
 
     def _start_local(self) -> None:
         self.app.scenes.switch_to("local_setup")
@@ -183,6 +221,8 @@ class MenuScene(Scene):
 
     def on_enter(self, **kwargs: Any) -> None:
         self.app.audio.play_bgm("main")
+        self.net_expanded = False
+        self._build()
 
     def update(self, dt: float) -> None:
         super().update(dt)
@@ -196,9 +236,6 @@ class MenuScene(Scene):
                 return
             if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                 self._start_local()
-                return
-            if event.key == pygame.K_h:
-                self.app.scenes.switch_to("help", back="menu")
                 return
             if event.key == pygame.K_t:
                 self._start_tutorial()
@@ -216,9 +253,9 @@ class MenuScene(Scene):
 
         # 左侧渐变遮罩，让文字更清晰
         layer = pygame.Surface((820, 900), pygame.SRCALPHA)
-        for x in range(820):
-            a = int(232 * (1.0 - x / 820.0) ** 1.4)
-            pygame.draw.line(layer, theme.color("bg", a), (x, 0), (x, 900))
+        for xx in range(820):
+            a = int(232 * (1.0 - xx / 820.0) ** 1.4)
+            pygame.draw.line(layer, theme.color("bg", a), (xx, 0), (xx, 900))
         surface.blit(layer, (0, 0))
 
         self._draw_title(surface)
@@ -247,9 +284,10 @@ class MenuScene(Scene):
                         theme.color("text_dim"), (cx, 318), anchor="center")
 
     def _draw_footer(self, surface: pygame.Surface) -> None:
+        # 只在按钮区之外画提示（v0.3 的提示行压在了「退出游戏」上）
         theme.draw_text(surface,
-                        "Enter 快速开始单机   ·   T 新手教程   ·   H 规则图鉴   ·   Esc 退出",
-                        self.fonts.tiny(), theme.color("text_mute"), (400, 872),
+                        "Enter 快速开始单机　·　T 新手教程　·　Esc 退出",
+                        self.fonts.tiny(), theme.color("text_mute"), (400, 878),
                         anchor="center")
         from ..version import APP_VERSION, VERSION_LABEL
         theme.draw_text(surface, f"{APP_VERSION} · {VERSION_LABEL}",

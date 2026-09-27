@@ -204,28 +204,17 @@ def listen_on(host: str, port: int, backlog: int = 8) -> socket.socket:
 
 
 def local_ip_addresses() -> list[str]:
-    """本机所有可用的局域网 IPv4 地址，用于在大厅里展示给朋友。"""
-    ips: list[str] = []
-    try:
-        hostname = socket.gethostname()
-        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
-            ip = info[4][0]
-            if ip not in ips and not ip.startswith("127."):
-                ips.append(ip)
-    except OSError:
-        pass
-    if not ips:
-        # 兜底：通过 UDP 探测默认出口地址（不会真的发包）
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ips.append(s.getsockname()[0])
-            s.close()
-        except OSError:
-            pass
-    return ips or ["127.0.0.1"]
+    """本机所有可用的局域网 IPv4 地址（推荐顺序，第一个最可能可用）。
+
+    真正的枚举逻辑在 `netinfo` 里：它会区分 WiFi / 以太网 / 虚拟网卡，
+    把「室友真的能访问到」的地址排在前面。这里只是保持旧接口不变。
+    """
+    from . import netinfo
+
+    return netinfo.local_ips(include_loopback=True)
 
 
 def primary_ip() -> str:
-    ips = local_ip_addresses()
-    return ips[0] if ips else "127.0.0.1"
+    from . import netinfo
+
+    return netinfo.best_ip()

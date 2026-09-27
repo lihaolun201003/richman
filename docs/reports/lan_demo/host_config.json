@@ -1,0 +1,9 @@
+{
+  "name": "房主进程",
+  "room": "双进程测试房间",
+  "port": 28191,
+  "anim_speed": 2.0,
+  "ai_speed": 3.0,
+  "rounds": 3,
+  "max_seconds": 200.0
+}

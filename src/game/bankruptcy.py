@@ -179,6 +179,12 @@ def _declare_bankrupt(
     reason: str,
 ) -> None:
     """宣告破产：现金与全部地产交给债权人；无债权人则归银行。"""
+    # 先记下破产瞬间的「死因画像」：玩家会想知道他欠了多少、还剩多少、几块地。
+    # 这些数字必须在清零与转移之前取，之后就再也拿不到了。
+    owned = state.properties_of(player.id)
+    debt = max(0, int(amount) - out.paid)
+    assets_before = max(0, player.money) + sum(p.asset_value for p in owned)
+
     player.bankrupt = True
     player.in_jail = False
     player.jail_turns = 0
@@ -188,7 +194,9 @@ def _declare_bankrupt(
     to_creditor = creditor is not None and not creditor.bankrupt
 
     # 地产
+    title_count = 0
     for prop in state.properties_of(player.id):
+        title_count += 1
         if to_creditor:
             prop.transfer(creditor.id, keep_level=True)
             state.log(EventType.PROPERTY_TRANSFERRED,
@@ -211,11 +219,14 @@ def _declare_bankrupt(
     player.status_effects.clear()
 
     out.bankrupt = True
-    out.deficit = max(0, amount - out.paid)
+    out.deficit = debt
     state.log(EventType.BANKRUPT,
               msg_bankrupt(player.name, creditor.name if to_creditor else None), player.id,
               {"creditor": creditor.id if to_creditor else None,
-               "order": player.bankrupt_order, "reason": reason})
+               "creditor_name": creditor.name if to_creditor else "",
+               "order": player.bankrupt_order, "reason": reason,
+               "debt": debt, "assets": assets_before, "properties": title_count,
+               "alert": True})
     out.events.append(("bankrupt", player.id, out.liquidated))
     state.bump()
 

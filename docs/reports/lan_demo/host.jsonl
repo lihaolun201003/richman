@@ -1,0 +1,38 @@
+{"t": 0.137, "role": "host", "kind": "started", "pid": 14448, "python": "3.10.11"}
+{"t": 0.657, "role": "host", "kind": "stage", "stage": "lan_setup"}
+{"t": 0.693, "role": "host", "kind": "create_room", "port": 28191}
+{"t": 0.693, "role": "host", "kind": "stage", "stage": "wait_lobby"}
+{"t": 2.131, "role": "host", "kind": "client_arrived", "names": ["客户端进程"]}
+{"t": 2.132, "role": "host", "kind": "stage", "stage": "host_lobby"}
+{"t": 2.678, "role": "host", "kind": "start_click"}
+{"t": 2.713, "role": "host", "kind": "engine_started", "players": 4}
+{"t": 2.714, "role": "host", "kind": "stage", "stage": "playing"}
+{"t": 2.754, "role": "host", "kind": "heartbeat", "round": 1, "turn": 0, "phase": "GAME_SETUP", "current": "pc633e257", "decision": "", "revision": 2}
+{"t": 2.755, "role": "host", "kind": "presence", "player": "客户端进程", "state": "ready", "disconnected_sec": 0}
+{"t": 2.755, "role": "host", "kind": "presence", "player": "电脑 1", "state": "ai", "disconnected_sec": 0}
+{"t": 2.755, "role": "host", "kind": "presence", "player": "电脑 2", "state": "ai", "disconnected_sec": 0}
+{"t": 5.769, "role": "host", "kind": "heartbeat", "round": 1, "turn": 2, "phase": "APPLY_EVENT", "current": "pca63a8ce", "decision": "", "revision": 15}
+{"t": 8.777, "role": "host", "kind": "heartbeat", "round": 1, "turn": 3, "phase": "TURN_END", "current": "pa914c6b7", "decision": "", "revision": 23}
+{"t": 11.787, "role": "host", "kind": "heartbeat", "round": 2, "turn": 5, "phase": "TURN_START", "current": "pc633e257", "decision": "", "revision": 32}
+{"t": 14.799, "role": "host", "kind": "heartbeat", "round": 2, "turn": 7, "phase": "TURN_START", "current": "pa914c6b7", "decision": "", "revision": 45}
+{"t": 16.454, "role": "host", "kind": "presence", "player": "客户端进程", "state": "disconnected", "disconnected_sec": 0}
+{"t": 17.809, "role": "host", "kind": "heartbeat", "round": 2, "turn": 8, "phase": "MOVING", "current": "pa09c780a", "decision": "", "revision": 54}
+{"t": 20.812, "role": "host", "kind": "heartbeat", "round": 3, "turn": 10, "phase": "ROLLING", "current": "pca63a8ce", "decision": "", "revision": 66}
+{"t": 23.817, "role": "host", "kind": "heartbeat", "round": 3, "turn": 11, "phase": "SHOP", "current": "pa914c6b7", "decision": "shop:pa914c6b7", "revision": 76}
+{"t": 26.824, "role": "host", "kind": "heartbeat", "round": 3, "turn": 12, "phase": "TURN_END", "current": "pa09c780a", "decision": "", "revision": 84}
+{"t": 29.83, "role": "host", "kind": "heartbeat", "round": 4, "turn": 14, "phase": "MOVING", "current": "pca63a8ce", "decision": "", "revision": 95}
+{"t": 32.84, "role": "host", "kind": "heartbeat", "round": 4, "turn": 16, "phase": "TURN_START", "current": "pa09c780a", "decision": "", "revision": 106}
+{"t": 35.276, "role": "host", "kind": "hold_for_offline_player"}
+{"t": 35.852, "role": "host", "kind": "heartbeat", "round": 5, "turn": 17, "phase": "WAIT_ROLL", "current": "pc633e257", "decision": "roll:pc633e257", "revision": 114}
+{"t": 38.859, "role": "host", "kind": "heartbeat", "round": 5, "turn": 17, "phase": "WAIT_ROLL", "current": "pc633e257", "decision": "roll:pc633e257", "revision": 114}
+{"t": 41.868, "role": "host", "kind": "heartbeat", "round": 5, "turn": 17, "phase": "WAIT_ROLL", "current": "pc633e257", "decision": "roll:pc633e257", "revision": 114}
+{"t": 44.874, "role": "host", "kind": "heartbeat", "round": 5, "turn": 17, "phase": "WAIT_ROLL", "current": "pc633e257", "decision": "roll:pc633e257", "revision": 114}
+{"t": 46.461, "role": "host", "kind": "presence", "player": "客户端进程", "state": "ai_takeover", "disconnected_sec": 30}
+{"t": 47.888, "role": "host", "kind": "heartbeat", "round": 5, "turn": 17, "phase": "WAIT_ROLL", "current": "pc633e257", "decision": "roll:pc633e257", "revision": 114}
+{"t": 50.888, "role": "host", "kind": "heartbeat", "round": 5, "turn": 17, "phase": "WAIT_ROLL", "current": "pc633e257", "decision": "roll:pc633e257", "revision": 114}
+{"t": 51.133, "role": "host", "kind": "presence", "player": "客户端进程", "state": "idle", "disconnected_sec": 0}
+{"t": 51.136, "role": "host", "kind": "rounds_done", "round": 5, "turn": 17, "revision": 114, "hash": "22e17e4bb9b591f9"}
+{"t": 51.136, "role": "host", "kind": "stage", "stage": "finish_wait"}
+{"t": 53.147, "role": "host", "kind": "stage", "stage": "done"}
+{"kind": "summary", "role": "host", "count": 36}
+{"kind": "summary", "role": "host", "count": 36}

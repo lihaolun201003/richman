@@ -1,0 +1,30 @@
+{"t": 0.187, "role": "client", "kind": "started", "pid": 67764, "python": "3.10.11"}
+{"t": 0.701, "role": "client", "kind": "stage", "stage": "lan_setup"}
+{"t": 0.776, "role": "client", "kind": "join_room", "host": "192.168.1.103", "port": 28189}
+{"t": 0.776, "role": "client", "kind": "stage", "stage": "connecting"}
+{"t": 0.803, "role": "client", "kind": "joined", "player_id": "p4efe4fbc", "room": "双进程测试房间", "via": "192.168.1.103:28189"}
+{"t": 0.804, "role": "client", "kind": "stage", "stage": "client_lobby"}
+{"t": 1.343, "role": "client", "kind": "ready"}
+{"t": 1.344, "role": "client", "kind": "stage", "stage": "playing"}
+{"t": 1.363, "role": "client", "kind": "heartbeat", "note": "no_state", "stage": "playing"}
+{"t": 4.383, "role": "client", "kind": "heartbeat", "round": 1, "turn": 2, "phase": "TURN_START", "current": "p4efe4fbc", "decision": "", "revision": 11}
+{"t": 7.389, "role": "client", "kind": "heartbeat", "round": 1, "turn": 3, "phase": "MOVING", "current": "pa068529c", "decision": "", "revision": 21}
+{"t": 10.402, "role": "client", "kind": "heartbeat", "round": 1, "turn": 4, "phase": "ARRIVED", "current": "p7e9f0f81", "decision": "", "revision": 30}
+{"t": 13.418, "role": "client", "kind": "heartbeat", "round": 2, "turn": 6, "phase": "WAIT_DECISION", "current": "p4efe4fbc", "decision": "buy_property:p4efe4fbc", "revision": 41}
+{"t": 16.424, "role": "client", "kind": "heartbeat", "round": 2, "turn": 7, "phase": "TURN_END", "current": "pa068529c", "decision": "", "revision": 49}
+{"t": 16.474, "role": "client", "kind": "simulated_cable_pull", "turn": 11}
+{"t": 16.475, "role": "client", "kind": "stage", "stage": "disconnected"}
+{"t": 51.192, "role": "client", "kind": "cable_plugged_back"}
+{"t": 51.193, "role": "client", "kind": "stage", "stage": "plug_back"}
+{"t": 51.284, "role": "client", "kind": "reconnected", "revision": 114, "player_id": "p4efe4fbc"}
+{"t": 51.284, "role": "client", "kind": "stage", "stage": "playing"}
+{"t": 51.316, "role": "client", "kind": "heartbeat", "round": 5, "turn": 17, "phase": "WAIT_ROLL", "current": "pcbc56f30", "decision": "roll:pcbc56f30", "revision": 114}
+{"t": 51.327, "role": "client", "kind": "reconnect_attempt"}
+{"t": 51.328, "role": "client", "kind": "stage", "stage": "reconnecting"}
+{"t": 51.355, "role": "client", "kind": "reconnected", "revision": 114, "player_id": "p4efe4fbc"}
+{"t": 51.355, "role": "client", "kind": "stage", "stage": "playing"}
+{"t": 51.386, "role": "client", "kind": "rounds_done", "round": 5, "turn": 17, "revision": 114, "hash": "f083f2726a8c49ec"}
+{"t": 51.386, "role": "client", "kind": "stage", "stage": "finish_wait"}
+{"t": 54.888, "role": "client", "kind": "stage", "stage": "done"}
+{"kind": "summary", "role": "client", "count": 28}
+{"kind": "summary", "role": "client", "count": 28}

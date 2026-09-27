@@ -229,27 +229,53 @@ class LobbyState:
 
     # ------------------------------------------------------------ 开局条件
 
-    def can_start(self) -> tuple[bool, str]:
+    def host_name(self) -> str:
+        s = self.session(self.host_player_id)
+        return s.name if s is not None else ""
+
+    def start_blockers(self) -> list[str]:
+        """列出「为什么还不能开始」，按玩家能理解的说法，一条一个原因。
+
+        房主不需要准备，所以这里不会把房主算进「等待准备」。
+        """
+        out: list[str] = []
         if self.phase != PHASE_LOBBY:
-            return False, "游戏已经开始"
-        if len(self.sessions) < self.min_players:
-            return False, f"至少需要 {self.min_players} 名参与者"
-        if len(self.sessions) > self.max_players:
-            return False, "人数超过上限"
-        for s in self.sessions:
-            if not s.ready:
-                return False, f"{s.name} 尚未准备"
-        for s in self.sessions:
-            if not s.is_ai and not s.connected:
-                return False, f"{s.name} 已掉线"
+            out.append("游戏已经开始")
+            return out
+        count = len(self.sessions)
+        if count < self.min_players:
+            out.append(f"还需要 {self.min_players - count} 名参与者（至少 {self.min_players} 人）")
+        if count > self.max_players:
+            out.append("人数超过上限")
+        not_ready = [s for s in self.sessions if not s.is_ai and not s.is_host and not s.ready]
+        if not_ready:
+            names = "、".join(s.name for s in not_ready[:3])
+            if len(not_ready) > 3:
+                names += f" 等 {len(not_ready)} 人"
+            out.append(f"等待 {len(not_ready)} 名玩家准备：{names}")
+        offline = [s for s in self.sessions if not s.is_ai and s.disconnected]
+        if offline:
+            names = "、".join(s.name for s in offline[:3])
+            out.append(f"{names} 已掉线，请等待重连")
+        return out
+
+    def can_start(self) -> tuple[bool, str]:
+        blockers = self.start_blockers()
+        if blockers:
+            return False, blockers[0]
         return True, ""
 
     # ------------------------------------------------------------ 序列化
 
     def to_dict(self) -> dict[str, Any]:
+        from ..version import APP_VERSION
+
+        blockers = self.start_blockers()
         return {
             "room_name": self.room_name,
             "host_player_id": self.host_player_id,
+            "host_name": self.host_name(),
+            "app_version": APP_VERSION,
             "max_players": self.max_players,
             "min_players": self.min_players,
             "port": self.port,
@@ -264,20 +290,26 @@ class LobbyState:
             "preset_name": self.preset_label(),
             "phase": self.phase,
             "notice": self.notice,
-            "can_start": self.can_start()[0],
-            "start_reason": self.can_start()[1],
+            "can_start": not blockers,
+            "start_reason": blockers[0] if blockers else "",
+            "start_blockers": blockers,
             "players": [s.to_dict() for s in self.sessions],
         }
 
     def to_discovery_dict(self) -> dict[str, Any]:
         """UDP 广播用的精简信息。"""
+        from ..version import APP_VERSION
+
         return {
             "room_name": self.room_name,
+            "host_name": self.host_name(),
+            "app_version": APP_VERSION,
             "players": len(self.sessions),
             "max_players": self.max_players,
             "phase": self.phase,
             "map_name": self.map_name,
             "preset": self.preset,
+            "preset_name": self.preset_label(),
         }
 
     def __repr__(self) -> str:  # pragma: no cover

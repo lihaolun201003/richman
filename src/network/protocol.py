@@ -14,8 +14,11 @@ import json
 import struct
 from typing import Any
 
-#: 协议版本。任何不兼容的字段变更都要 +1
-PROTOCOL_VERSION = 2
+#: 协议版本。任何不兼容的字段变更都要 +1。
+#: v3：新增 PROBE / PROBE_RESULT（诊断页「测试连接」用），
+#:     并在 HELLO / WELCOME / RECONNECT 里携带人类可读的游戏版本号。
+#:      旧版本客户端会因为协议号不同被明确拒绝，而不是「连上了但行为诡异」。
+PROTOCOL_VERSION = 3
 
 #: 单条消息最大长度（16MB），防止异常数据撑爆内存
 MAX_MESSAGE_BYTES = 16 * 1024 * 1024
@@ -32,6 +35,9 @@ class MessageType:
     HELLO = "HELLO"
     WELCOME = "WELCOME"
     VERSION_MISMATCH = "VERSION_MISMATCH"
+    #: 诊断页「测试连接」：不占座位，只问「你是不是 Richman 房间、能不能进」
+    PROBE = "PROBE"
+    PROBE_RESULT = "PROBE_RESULT"
 
     # 大厅
     JOIN_REQUEST = "JOIN_REQUEST"

@@ -14,6 +14,7 @@ import uuid
 from typing import Any
 
 from .board import Board
+from .analytics import MatchAnalytics
 from .commands import PendingDecision
 from .ledger import EconomyLedger
 from .dice import DiceResult
@@ -113,6 +114,8 @@ class GameState:
         self.ended_at: float | None = None
         self.bankrupt_counter = 0
         self.total_rounds_played = 0
+        #: 对局分析（时间去向 / 破产轮数 / 里程碑）；只统计，不影响规则
+        self.analytics = MatchAnalytics()
 
     # ------------------------------------------------------------ 玩家
     def player(self, player_id: str | None) -> Player | None:
@@ -297,6 +300,7 @@ class GameState:
             "ended_at": self.ended_at,
             "bankrupt_counter": self.bankrupt_counter,
             "total_rounds_played": self.total_rounds_played,
+            "analytics": self.analytics.to_dict(),
         }
 
     @classmethod
@@ -358,6 +362,7 @@ class GameState:
         st.ended_at = d.get("ended_at")
         st.bankrupt_counter = int(d.get("bankrupt_counter", 0))
         st.total_rounds_played = int(d.get("total_rounds_played", 0))
+        st.analytics = MatchAnalytics.from_dict(d.get("analytics"))
         return st
 
     def clone(self) -> "GameState":

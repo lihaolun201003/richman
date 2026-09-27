@@ -21,19 +21,15 @@ BROADCAST_ADDRS = ["255.255.255.255", "<broadcast>"]
 
 
 def _broadcast_targets() -> list[str]:
+    from . import netinfo
+
     targets = ["255.255.255.255"]
-    # 补充子网广播地址，某些交换机不放行 255.255.255.255
-    try:
-        hostname = socket.gethostname()
-        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
-            ip = info[4][0]
-            if ip.startswith("127."):
-                continue
-            parts = ip.split(".")
-            if len(parts) == 4:
-                targets.append(".".join(parts[:3] + ["255"]))
-    except OSError:
-        pass
+    # 补充各网卡的子网广播地址，某些交换机不放行 255.255.255.255
+    for adapter in netinfo.list_adapters(include_loopback=False):
+        ip = adapter.ip
+        parts = ip.split(".")
+        if len(parts) == 4 and not ip.startswith("169.254."):
+            targets.append(".".join(parts[:3] + ["255"]))
     return list(dict.fromkeys(targets))
 
 
@@ -95,31 +91,68 @@ class DiscoveryBroadcaster:
 class RoomInfo:
     """Client 侧看到的一个房间。"""
 
-    __slots__ = ("room_name", "ip", "port", "players", "max_players", "phase",
-                 "map_name", "seen_at", "protocol_version")
+    __slots__ = ("room_name", "host_name", "ip", "port", "players", "max_players",
+                 "phase", "map_name", "preset_name", "seen_at", "protocol_version",
+                 "app_version")
 
     def __init__(self, d: dict[str, Any], ip: str) -> None:
         self.room_name = d.get("room_name", "未命名房间")
+        self.host_name = d.get("host_name", "")
         self.ip = ip
         self.port = int(d.get("port", 0))
         self.players = int(d.get("players", 0))
         self.max_players = int(d.get("max_players", 6))
         self.phase = d.get("phase", "lobby")
         self.map_name = d.get("map_name", "")
+        self.preset_name = d.get("preset_name", "") or d.get("preset", "")
         self.seen_at = time.time()
         self.protocol_version = int(d.get("protocol_version", 0))
+        self.app_version = str(d.get("app_version", "") or "")
 
     @property
     def full(self) -> bool:
         return self.players >= self.max_players
 
     @property
+    def version_ok(self) -> bool:
+        """广播里带了协议号就比对；没带（很旧的版本）就当不兼容。"""
+        if not self.protocol_version:
+            return False
+        return self.protocol_version == proto.PROTOCOL_VERSION
+
+    @property
     def joinable(self) -> bool:
-        return self.phase == "lobby" and not self.full
+        return self.phase == "lobby" and not self.full and self.version_ok
+
+    @property
+    def age_sec(self) -> float:
+        """这条广播多久之前收到的（越新越可信）。"""
+        return max(0.0, time.time() - self.seen_at)
+
+    def status_label(self) -> str:
+        """给玩家看的短状态：可加入 / 版本不一致 / 已开局 / 已满。"""
+        if not self.version_ok:
+            return "版本不一致"
+        if self.phase != "lobby":
+            return "已开局"
+        if self.full:
+            return "已满"
+        return "可加入"
+
+    def status_color(self) -> str:
+        if not self.version_ok:
+            return "warning"
+        if self.phase != "lobby" or self.full:
+            return "text_mute"
+        return "success"
+
+    def detail_line(self) -> str:
+        host = f"房主 {self.host_name}　·　" if self.host_name else ""
+        return (f"{self.ip}:{self.port}　·　{self.players}/{self.max_players} 人　·　"
+                f"{host}{self.map_name}")
 
     def label(self) -> str:
-        state = "可加入" if self.joinable else ("已开局" if self.phase != "lobby" else "已满")
-        return f"{self.room_name}  {self.ip}:{self.port}  {self.players}/{self.max_players}  {state}"
+        return f"{self.room_name}  {self.ip}:{self.port}  {self.players}/{self.max_players}  {self.status_label()}"
 
     @classmethod
     def from_packet(cls, data: bytes, ip: str) -> "RoomInfo | None":
@@ -141,6 +174,8 @@ class DiscoveryListener:
         self.rooms: dict[str, RoomInfo] = {}
         self.running = False
         self.error: str = ""
+        self.last_packet_at: float = 0.0
+        self.packet_count: int = 0
         self._thread: threading.Thread | None = None
         self._sock: socket.socket | None = None
         self._lock = threading.Lock()
@@ -175,6 +210,8 @@ class DiscoveryListener:
             info = RoomInfo.from_packet(data, addr[0])
             if info is None:
                 continue
+            self.last_packet_at = time.time()
+            self.packet_count += 1
             key = f"{info.ip}:{info.port}"
             with self._lock:
                 self.rooms[key] = info

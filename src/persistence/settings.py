@@ -27,6 +27,10 @@ PACE_CHOICES = [("慢", 0.7), ("标准", 1.0), ("快", 1.6)]
 #: 字体大小档位
 FONT_SCALE_CHOICES = [("小", 0.9), ("默认", 1.0), ("大", 1.15)]
 
+#: AI 演出速度：只改变「等 AI 的观感」，不改变任何规则结果。
+#: 决策本身是毫秒级算完的，玩家需要的是看清它在做什么，而不是等它发呆。
+AI_SPEED_CHOICES = [("正常", 1.0), ("快速", 1.7), ("极速", 3.0)]
+
 DEFAULT_SETTINGS: dict[str, Any] = {
     "display": {
         "width": 1600,
@@ -44,12 +48,16 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
     "ui": {
         "animation_speed": 1.0,
+        "ai_speed": 1.0,
         "font_scale": 1.0,
         "debug_overlay": False,
         "show_tooltips": True,
         "detailed_log": True,
         "show_tutorial_hint": True,
         "tutorial_done": False,
+        #: 第一次进对局时是否显示轻量引导（新手 5～7 步）
+        "show_guide": True,
+        "guide_done": False,
     },
     "player": {
         "nickname": "玩家",
@@ -214,6 +222,29 @@ class Settings:
     @property
     def animation_speed(self) -> float:
         return self._as_float("ui", "animation_speed", 1.0)
+
+    @property
+    def ai_speed(self) -> float:
+        """AI 演出速度倍率（1.0 正常）。只影响展示，不影响规则。"""
+        return max(0.5, self._as_float("ui", "ai_speed", 1.0))
+
+    def set_ai_speed(self, value: float) -> None:
+        self.set("ui", "ai_speed", float(value))
+
+    def ai_speed_label(self) -> str:
+        for label, value in AI_SPEED_CHOICES:
+            if abs(value - self.ai_speed) < 0.02:
+                return label
+        return f"{self.ai_speed:g}x"
+
+    @property
+    def show_guide(self) -> bool:
+        """首次进入对局时是否显示轻量引导。"""
+        return self._as_bool("ui", "show_guide", True)
+
+    @property
+    def guide_done(self) -> bool:
+        return self._as_bool("ui", "guide_done", False)
 
     @property
     def font_scale(self) -> float:

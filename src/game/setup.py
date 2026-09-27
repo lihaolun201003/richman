@@ -33,20 +33,78 @@ def load_config() -> dict[str, Any]:
 
 
 def preset_list() -> list[dict[str, Any]]:
-    """返回全部可选预设（给 UI 用）。"""
+    """返回全部可选预设（给 UI 用）。
+
+    这里必须回传**全部会影响玩家判断的字段**，而不只是名字与资金：
+    v0.3 的界面因为字段缺失，把「经过起点 +2,000」显示成了「+0」、
+    「初始手牌 2 张」显示成了「0 张」—— 玩家据此判断节奏会完全判断错。
+    """
     presets = load_config().get("presets") or {}
+    base = load_config().get("gameplay") or {}
     out = []
     for key, data in presets.items():
+        merged = dict(base)
+        merged.update(data)
         out.append({
             "key": key,
             "name": data.get("name", key),
             "desc": data.get("desc", ""),
-            "starting_money": data.get("starting_money", 15000),
-            "max_rounds": data.get("max_rounds", 200),
+            "starting_money": merged.get("starting_money", 15000),
+            "pass_start_bonus": merged.get("pass_start_bonus", 2000),
+            "max_rounds": merged.get("max_rounds", 200),
+            "starting_cards": merged.get("starting_cards", 2),
+            "shop_base_price": merged.get("shop_base_price", 1200),
+            "bonus_pool_base": merged.get("bonus_pool_base", 1500),
+            "phase_scale": merged.get("phase_scale", 1.0),
+            "ai_think_sec": merged.get("ai_think_sec", 0.45),
         })
-    # 保证 standard 在最前
-    out.sort(key=lambda x: (x["key"] != "standard", x["key"]))
+    # 保证 standard 在最前，其余按固定顺序（快速 → 标准 → 休闲 → 聚会）
+    order = {"quick": 0, "standard": 1, "casual": 2, "party": 3}
+    out.sort(key=lambda x: (order.get(x["key"], 9), x["key"]))
     return out
+
+
+def preset_by_key(key: str) -> dict[str, Any]:
+    for item in preset_list():
+        if item["key"] == key:
+            return item
+    return {}
+
+
+#: 人数 → 推荐的节奏预设（只用于「建议」，不强制）
+def recommend_preset(player_count: int) -> tuple[str, str]:
+    """返回 (预设 key, 给玩家的一句话理由)。"""
+    if player_count >= 5:
+        return "party", (f"{player_count} 人一局如果用标准节奏通常要 50 分钟以上，"
+                         "推荐「聚会局」：35～50 分钟打完一整局。")
+    if player_count <= 3:
+        return "standard", ""
+    return "standard", ""
+
+
+def preset_timeline_estimate(preset_key: str, player_count: int) -> str:
+    """给界面用的一句时长估计（粗略但诚实：基于每回合演出 + 轮数上限）。"""
+    import json
+
+    from ..utils.paths import data_path
+
+    path = data_path("default_map.json")
+    tile_count = 36
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            tile_count = len(json.load(f).get("tiles") or []) or 36
+    except Exception:
+        pass
+
+    item = preset_by_key(preset_key)
+    rounds = int(item.get("max_rounds", 200))
+    phase_scale = float(item.get("phase_scale", 1.0) or 1.0)
+    # 每回合固定演出 ≈ 2.45s（掷骰 + 结算 + 过场），再加移动 ≈ 7 格 × 0.17s
+    per_turn = (2.45 * phase_scale) + min(1.6, tile_count * 0.045)
+    # 真人决策与看牌时间：每个自己的回合约 2.5 秒
+    per_turn += 2.5 / max(2, player_count)
+    total_min = rounds * per_turn * player_count / 60.0
+    return f"参考时长：约 {int(total_min * 0.7)}～{int(total_min * 1.2)} 分钟"
 
 
 def default_rules(preset: str = "standard") -> dict[str, Any]:
@@ -260,9 +318,11 @@ def create_engine(
     # 绑定控制器：AI 玩家自动挂 AIController，其余由调用方接管
     from ..controllers.ai import AIController
 
+    think = float(rules.get("ai_think_sec", 0.45) or 0.45)
     for p in players:
         if p.is_ai:
-            engine.bind_controller(p.id, AIController(p.id, seed=(seed or 1) + p.slot))
+            engine.bind_controller(
+                p.id, AIController(p.id, seed=(seed or 1) + p.slot, think_sec=think))
     return engine
 
 

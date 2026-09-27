@@ -9,7 +9,7 @@
 
 用法:
     python tools/ui_smoke_test.py
-    python tools/ui_smoke_test.py --shots docs/reports/shots
+    python tools/ui_smoke_test.py --shots docs/reports/shots_v04
 """
 from __future__ import annotations
 
@@ -135,7 +135,8 @@ def key(app, k: int) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="UI 冒烟测试")
-    ap.add_argument("--shots", default="docs/reports/shots", help="截图输出目录")
+    ap.add_argument("--shots", default="docs/reports/shots_v04",
+                    help="截图输出目录（默认写到当前版本的截图目录，别覆盖历史报告）")
     ap.add_argument("--turns", type=int, default=40, help="单机对局模拟的回合数")
     args = ap.parse_args()
 

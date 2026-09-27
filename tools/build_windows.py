@@ -133,12 +133,16 @@ def build(onefile: bool = False, console: bool = False) -> int:
     return 0
 
 
-def make_zip(out_dir: str, version: str) -> str:
-    """把 onedir 产物打成发布 zip（只含运行所需内容）。"""
-    from src.version import version_tuple
+def make_zip(out_dir: str, version: str = "") -> str:
+    """把 onedir 产物打成发布 zip（只含运行所需内容）。
 
-    major, minor, patch = version_tuple()
-    name = f"Richman-v{major}.{minor}.{patch}-windows.zip"
+    zip 里会额外放一份「先读我.txt」：玩家解压后第一眼看到的就是怎么玩、
+    连不上怎么办。不需要他去翻仓库里的 README。
+    """
+    from src.version import short_version
+
+    tag = short_version() if not version else version
+    name = f"Richman-v{tag}-windows.zip"
     target = os.path.join(ROOT, "dist", name)
     count = 0
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
@@ -153,11 +157,115 @@ def make_zip(out_dir: str, version: str) -> str:
                 rel = os.path.relpath(full, os.path.dirname(out_dir))
                 zf.write(full, rel)
                 count += 1
+        zf.writestr(f"Richman/先读我.txt", _readme_for_zip(tag))
+        count += 1
     size_mb = os.path.getsize(target) / (1024 * 1024)
     print(f"\n发布包已生成：{target}")
     print(f"  {count} 个文件，{size_mb:.1f} MB")
     print("  解压后双击 Richman.exe 即可运行（整个文件夹一起用，不要只拿 exe）")
+    verify_zip(target)
     return target
+
+
+def _readme_for_zip(tag: str) -> str:
+    """给玩家的第一屏说明（放在 zip 里，纯文本，双击就能看）。"""
+    return f"""Richman 大富翁 {tag} · 先读我
+========================================
+
+怎么开始
+--------
+1. 把这个文件夹解压到任意位置（不要只把 exe 拖出来）
+2. 双击 Richman.exe
+3. 一个人点：局域网联机 → 创建房间
+4. 其他人点：局域网联机 → 加入房间，输入房主发来的地址
+5. 房主点「开始游戏」
+
+联机三步
+--------
+房主：创建房间 → 大厅显示一行大字（例如 192.168.1.5:28080）
+      → 点「复制连接信息」，发给其他人
+其他人：加入房间 → 粘贴地址（或直接点右侧搜到的房间卡片）→ 按 R 准备
+房主：看到「已准备」→ 点「开始游戏」
+
+搜不到房间？
+------------
+很正常，不影响联机。部分校园网 / 访客 WiFi 会屏蔽广播。
+让房主把「复制连接信息」的内容发给你，粘到「房主发来的地址」框里即可。
+
+连不上？
+--------
+主菜单 → 局域网联机 → 联机诊断：
+  · 它会告诉你本机应该把哪个地址发给别人
+  · 里面有「测试连接」，会分类告诉你失败原因
+    （被拒绝 / 超时 / 版本不一致 / 房间已满 / 已经开局 …）
+  · 还不行就点「导出联机诊断」，把生成的 zip 发给开发者
+
+Windows 防火墙
+--------------
+第一次开房间时系统会弹窗，必须勾选「专用网络」并允许。
+误点了取消，就在管理员 PowerShell 里执行：
+
+  New-NetFirewallRule -DisplayName "Richman 大富翁" -Direction Inbound `
+    -Protocol TCP -LocalPort 28080 -Action Allow -Profile Private
+  New-NetFirewallRule -DisplayName "Richman 自动发现" -Direction Inbound `
+    -Protocol UDP -LocalPort 28081 -Action Allow -Profile Private
+
+掉线了？
+--------
+不会毁掉这一局：
+  · 掉线的一方会看到「正在重新连接…」和倒计时
+  · 房主那边游戏继续，掉线玩家卡片上会写「掉线 N 秒」
+  · 超过 30 秒由 AI 临时接管，本局不中断
+  · 掉线的人随时可以连回来，连上后会自动交还控制权
+
+存档与设置
+----------
+config\\user_settings.json   设置
+saves\\*.json                存档（每个回合自动保存）
+logs\\richman.log            运行日志（出问题时看这里）
+diag\\*.zip                  导出的联机诊断包
+
+第一次玩建议点主菜单的「新手教程」，3 分钟走一遍核心玩法。
+"""
+
+
+def verify_zip(path: str) -> int:
+    """检查发布包里没有不该有的东西（这是给玩家的包，不是开发目录）。"""
+    problems: list[str] = []
+    with zipfile.ZipFile(path) as zf:
+        names = zf.namelist()
+        for n in names:
+            low = n.lower()
+            if low.endswith(".py") or "/src/" in low or "\\src\\" in low:
+                problems.append(f"包含源码：{n}")
+            if "/.git/" in low or "/.venv/" in low:
+                problems.append(f"包含版本库/虚拟环境：{n}")
+            if low.endswith((".log", ".pyc", ".pyo", ".tmp")):
+                problems.append(f"包含日志或缓存：{n}")
+            if "user_settings.json" in low or "/saves/" in low or "\\saves\\" in low:
+                problems.append(f"包含用户数据：{n}")
+            if low.endswith(".pdb"):
+                problems.append(f"包含调试符号：{n}")
+        # 本机绝对路径（打包时不该混进去）
+        for n in names:
+            if "C:\\Users\\" in n or "/home/" in n:
+                problems.append(f"包含本机路径：{n}")
+        has_exe = any(n.endswith("Richman.exe") for n in names)
+        has_internal = any("_internal/" in n.replace("\\", "/") for n in names)
+    print(f"\n发布包检查（共 {len(names)} 项）：")
+    if not has_exe:
+        problems.append("缺少 Richman.exe")
+    if not has_internal:
+        problems.append("缺少 _internal/（依赖与游戏数据）")
+    if problems:
+        for p in problems[:12]:
+            print(f"  [问题] {p}")
+        print(f"  → 共 {len(problems)} 个问题")
+        return 1
+    root_files = [n for n in names if n.count("/") + n.count("\\") == 1]
+    print(f"  [OK] 有 Richman.exe 与 _internal/，无源码 / 日志 / 存档 / 缓存 / 本机路径")
+    print(f"  根目录文件：{', '.join(sorted(os.path.basename(n) for n in root_files))}")
+    return 0
 
 
 def smoke_test(exe: str) -> int:

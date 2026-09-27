@@ -14,7 +14,13 @@ from typing import Any
 
 import pygame
 
-from ..game.setup import character_by_id, load_characters, palette
+from ..game.setup import (
+    character_by_id,
+    load_characters,
+    palette,
+    preset_timeline_estimate,
+)
+from ..network import diagnose
 from ..network.discovery import DiscoveryListener
 from ..persistence import savegame
 from ..utils.clipboard import copy_text
@@ -211,7 +217,7 @@ class LocalSetupScene(Scene):
             value=self.player_count, on_change=self._set_count,
             label="参与人数（含你自己）")
 
-        gallery_y = y0 + 92
+        gallery_y = y0 + 108
         # 12 位角色一次看全：4 列 × 3 行
         self.gallery = CharacterGallery(pygame.Rect(140, gallery_y, 800, 240),
                                         self.character_id, self._set_character,
@@ -331,7 +337,7 @@ class LocalSetupScene(Scene):
         theme.draw_text(surface, "你的昵称", self.fonts.small(), theme.color("text_dim"),
                         (140, content_y + 4))
         theme.draw_text(surface, "选择角色（12 位，各有被动能力，鼠标悬停看详情）",
-                        self.fonts.small(), theme.color("text_dim"), (140, content_y + 74))
+                        self.fonts.small(), theme.color("text_dim"), (140, content_y + 88))
         mouse = pygame.mouse.get_pos()
         tips: list[str] = []
         self.gallery.draw(surface, self.fonts, tips)
@@ -374,40 +380,83 @@ class LocalSetupScene(Scene):
         ]
         x = panel.x + 18
         for label, value in rows:
-            theme.stat(surface, self.fonts, x, panel.y + 48, label, value,
+            theme.stat(surface, self.fonts, x, panel.y + 46, label, value,
                        color_name="accent", value_key="h3")
             x += 120
-        theme.draw_text(surface, "地产最高 3 级 · 集齐整个片区租金翻倍 · 最后存活者获胜",
-                        self.fonts.tiny(), theme.color("text_mute"),
-                        (panel.x + 20, panel.bottom - 28))
+
+        # 时长估计：按当前的预设与人数给出，而不是一句「很快就打完」
+        estimate = preset_timeline_estimate(preset.get("key", "standard"),
+                                            self.player_count)
+        theme.draw_text(surface, estimate, self.fonts.tiny(), theme.color("text_dim"),
+                        (panel.x + 20, panel.y + 88))
+
+        # 人数自适应建议（只建议，不强制改）
+        advice = ""
+        if self.player_count >= 5 and preset.get("key") != "party":
+            advice = f"{self.player_count} 人局偏长：点「规则」换成「聚会局」会快很多"
+        elif self.player_count >= 5 and preset.get("key") == "party":
+            advice = "人数与「聚会局」匹配，节奏合适"
+        theme.draw_text(surface, theme.truncate(advice, self.fonts.tiny(), panel.width - 40)
+                        if advice else "地产最高 3 级 · 集齐整个片区租金翻倍 · 最后存活者获胜",
+                        self.fonts.tiny(),
+                        theme.color("accent" if advice else "text_mute"),
+                        (panel.x + 20, panel.y + 110))
 
 
 # ==================================================================== 局域网
 
+def connection_share_text(room_name: str, ip: str, port: int) -> str:
+    """「复制连接信息」复制到剪贴板的内容。
+
+    刻意写成多行带标签：室友粘贴到聊天框里时，别人也能一眼看懂哪一行是什么，
+    而不是一串「192.168.1.5:28080」需要自己解释。
+    """
+    from ..version import APP_VERSION, short_version
+
+    return (f"{APP_VERSION}\n"
+            f"房间：{room_name}\n"
+            f"IP：{ip}\n"
+            f"端口：{port}\n"
+            f"版本：{short_version()}")
+
+
 class LanSetupScene(Scene):
-    """局域网建房间 / 加入房间。"""
+    """局域网建房间 / 加入房间。
+
+    v0.4 的两处产品化改造：
+
+    **建房页**：在还没建房的时候就把「这台电脑的局域网地址」摆出来，
+    并明确区分「推荐发给室友的地址」与「虚拟网卡地址」。玩家不需要先建房、
+    再进大厅、再回来找 IP。
+
+    **加入页**：上半屏是自动发现的房间卡片（房间名 / 房主 / 人数 / 版本 / 地址，
+    点整张卡即可加入），下半屏是手动输入。输入框接受 `192.168.1.10:28080`
+    这种最常见的复制粘贴形式，会自动拆出端口。
+    """
 
     def __init__(self, app: Any) -> None:
         super().__init__(app)
         self.mode = "host"
         self.listener: DiscoveryListener | None = None
         self.rooms: list[Any] = []
-        self.selected_room = -1
         self.character_id = app.settings.character_id
         self.status = ""
+        self.hover_room = -1
         self._layout_key: tuple = ()
-        self.gallery = CharacterGallery(pygame.Rect(140, 300, 620, 240),
+        self.adapters: list[Any] = []
+        self._adapters_at = 0.0
+        self.gallery = CharacterGallery(pygame.Rect(120, 300, 620, 240),
                                         self.character_id, self._set_character,
                                         columns=3, card_h=72)
-        self.room_list = ScrollPanel(pygame.Rect(880, 300, 580, 300))
+        self.room_list = ScrollPanel(pygame.Rect(840, 320, 620, 300))
         self._room_rows: list[pygame.Rect] = []
         self._build()
 
     @property
     def subtitle(self) -> str:
         if self.mode == "host":
-            return "房间开在本机上；把 IP 和端口告诉朋友，他们在同一个 WiFi 下就能加入"
-        return "输入房主的局域网 IP，或直接点右侧搜到的房间"
+            return "房间开在这台电脑上；创建后把大厅里的「连接地址」发给室友即可"
+        return "点下面的房间卡片直接加入，或手填房主发来的地址（192.168.1.5:28080 也可以）"
 
     def _build(self) -> None:
         fonts = self.app.fonts
@@ -418,50 +467,71 @@ class LanSetupScene(Scene):
         s = self.app.settings
         y0 = theme.page_content_top(fonts, self.subtitle)
 
-        self.name_input = TextInput(pygame.Rect(140, y0 + 22, 320, 46), s.nickname,
+        # ---- 表单（两种模式共用的坐标，避免切换模式时控件“跳位”）
+        # 左列可用宽度只到 x=830：右侧面板从 840 开始，
+        # 超过 830 的控件会压在面板标题上（v0.4 实测踩过一次）。
+        self.name_input = TextInput(pygame.Rect(120, y0 + 26, 240, 46), s.nickname,
                                     placeholder="你的昵称", max_length=12)
-        self.room_input = TextInput(pygame.Rect(500, y0 + 22, 360, 46),
+        self.room_input = TextInput(pygame.Rect(380, y0 + 26, 300, 46),
                                     s.last_room_name or f"{s.nickname} 的房间",
                                     placeholder="房间名称", max_length=16)
-        self.port_host_input = TextInput(pygame.Rect(900, y0 + 22, 160, 46), "28080",
+        self.port_host_input = TextInput(pygame.Rect(700, y0 + 26, 120, 46), "28080",
                                          placeholder="端口", max_length=5, numeric=True)
-        self.host_input = TextInput(pygame.Rect(140, y0 + 22, 360, 46), s.last_host,
-                                    placeholder="房主 IP，例如 192.168.1.5", max_length=40)
-        self.port_input = TextInput(pygame.Rect(540, y0 + 22, 160, 46), str(s.last_port),
+        self.host_input = TextInput(
+            pygame.Rect(380, y0 + 26, 300, 46), s.last_host,
+            placeholder="例如 192.168.1.5:28080", max_length=48)
+        self.port_input = TextInput(pygame.Rect(700, y0 + 26, 120, 46), str(s.last_port),
                                     placeholder="端口", max_length=5, numeric=True)
-        self.find_button = Button(
-            pygame.Rect(740, y0 + 22, 200, 46), "搜索局域网房间", on_click=self._rescan,
-            style="secondary", font_size=16, icon="refresh")
 
-        self.gallery = CharacterGallery(pygame.Rect(140, y0 + 100, 620, 240),
+        self.gallery = CharacterGallery(pygame.Rect(120, y0 + 108, 660, 240),
                                         self.character_id, self._set_character,
                                         columns=3, card_h=72)
-        self.card_rect = pygame.Rect(140, y0 + 352, 620, 160)
-        self.panel_rect = pygame.Rect(880, y0 + 100, 580, 412)
+        self.card_rect = pygame.Rect(120, y0 + 360, 660, 152)
+        self.panel_rect = pygame.Rect(840, y0 + 24, 620, 488)
+        self.host_panel_rect = pygame.Rect(840, y0 + 24, 620, 488)
 
-        # 关键修正：所有输入框都必须进入 widgets，否则既画不出来也点不到
+        self.rescan_button = Button(
+            pygame.Rect(840 + 620 - 176, y0 + 44, 156, 34), "重新搜索",
+            on_click=self._rescan, style="ghost", font_size=14, icon="refresh")
+        self.copy_button = Button(
+            pygame.Rect(840 + 620 - 200, y0 + 24 + 210, 184, 44), "复制连接信息",
+            on_click=self._copy_hint, style="ghost", font_size=15, icon="copy")
+
         self.widgets = [
             self.name_input, self.room_input, self.port_host_input,
-            self.host_input, self.port_input, self.find_button,
-            Button(pygame.Rect(140, 806, 240, 56), "返回", on_click=self._back,
-                   style="ghost"),
-            Button(pygame.Rect(400, 806, 300, 56), "创建房间", on_click=self._submit,
-                   style="accent", icon="play"),
-            Button(pygame.Rect(880, y0 + 530, 260, 50), "复制连接信息",
-                   on_click=self._copy_hint, style="ghost", font_size=16, icon="copy"),
+            self.host_input, self.port_input, self.rescan_button, self.copy_button,
+            Button(pygame.Rect(120, 812, 240, 56), "返回", on_click=self._back,
+                   style="secondary", icon="exit"),
+            Button(pygame.Rect(384, 812, 300, 56), "创建房间", on_click=self._submit,
+                   style="accent", icon="network"),
         ]
         self._sync_visibility()
 
     def _sync_visibility(self) -> None:
         """按模式显示/隐藏字段，并调整按钮文案。"""
-        for widget in (self.room_input, self.port_host_input):
-            widget.visible = self.mode == "host"
-        for widget in (self.host_input, self.port_input, self.find_button):
-            widget.visible = self.mode == "join"
-        self.widgets[6].label = "返回"
-        self.widgets[7].label = "创建房间" if self.mode == "host" else "连接房主"
-        self.widgets[7].icon = "network" if self.mode == "host" else "play"
-        self.widgets[8].visible = self.mode == "host"
+        host = self.mode == "host"
+        self.room_input.visible = host
+        self.port_host_input.visible = host
+        self.host_input.visible = not host
+        self.port_input.visible = not host
+        self.rescan_button.visible = not host
+        self.copy_button.visible = host
+        self.widgets[7].label = "返回"
+        self.widgets[8].label = "创建房间" if host else "连接房主"
+        self.widgets[8].icon = "network" if host else "play"
+
+    # ------------------------------------------------------------ 数据
+
+    def _refresh_adapters(self, force: bool = False) -> None:
+        """网卡枚举不需要每帧做，1.5 秒一次足够。"""
+        import time as _time
+
+        if not force and _time.time() - self._adapters_at < 1.5 and self.adapters:
+            return
+        from ..network import netinfo
+
+        self.adapters = netinfo.lan_endpoints()
+        self._adapters_at = _time.time()
 
     def _set_character(self, char_id: str) -> None:
         self.character_id = char_id
@@ -480,6 +550,7 @@ class LanSetupScene(Scene):
         self.character_id = self.app.settings.character_id
         self.gallery.selected = self.character_id
         self._sync_visibility()
+        self._refresh_adapters(force=True)
         if self.mode == "join" and self.app.settings.auto_discovery:
             self._start_listener()
         else:
@@ -493,9 +564,9 @@ class LanSetupScene(Scene):
             self.listener = DiscoveryListener(28081)
             ok = self.listener.start()
             if not ok:
-                self.status = self.listener.error or "自动发现不可用，请手动输入房主 IP"
+                self.status = self.listener.error or "自动发现不可用，请手动输入房主地址"
             else:
-                self.status = "正在搜索局域网内的房间…"
+                self.status = "正在搜索同一局域网内的房间…"
 
     def _stop_listener(self) -> None:
         if self.listener is not None:
@@ -507,26 +578,28 @@ class LanSetupScene(Scene):
         self._start_listener()
         self.notify("重新搜索局域网房间…", "info")
 
+    # ------------------------------------------------------------ 复制连接信息
+
     def _copy_hint(self) -> None:
-        from ..game.setup import available_maps
-
-        text = ""
-        if self.mode == "host":
-            try:
-                from ..network.transport import local_ip_addresses
-
-                ips = local_ip_addresses()
-                port = int(self.port_host_input.text or "28080")
-                text = f"{ips[0]}:{port}" if ips else "127.0.0.1"
-            except Exception:
-                text = ""
-        if not text:
-            self.notify("没有可复制的连接信息", "warning")
-            return
-        if copy_text(text):
-            self.notify(f"已复制「{text}」，发给朋友即可", "success")
+        """建房页的复制：先复制「本机地址预览」，建房后由大厅负责复制完整信息。"""
+        host = self.app.host
+        if host is not None:
+            text = connection_share_text(host.lobby.room_name, host.primary_ip(), host.port)
         else:
-            self.notify(f"请手动记下：{text}", "info")
+            self._refresh_adapters(force=True)
+            ip = self.adapters[0].ip if self.adapters else "127.0.0.1"
+            try:
+                port = int(self.port_host_input.text or "28080")
+            except ValueError:
+                port = 28080
+            room = (self.room_input.text or "").strip() or f"{self.app.settings.nickname} 的房间"
+            text = connection_share_text(room, ip, port)
+        if copy_text(text):
+            self.notify("已复制连接信息，粘贴给室友即可", "success")
+        else:
+            self.notify("复制失败，请手动记下大厅里的连接地址", "warning")
+
+    # ------------------------------------------------------------ 提交
 
     def _submit(self) -> None:
         name = (self.name_input.text or "玩家").strip()[:12] or "玩家"
@@ -542,16 +615,22 @@ class LanSetupScene(Scene):
             self.app.settings.set("network", "last_room_name", room)
             self.app.start_host(room, name, char, port)
         else:
-            host = (self.host_input.text or "").strip()
-            if not host:
+            raw = (self.host_input.text or "").strip()
+            if not raw:
                 self.app.push_modal(MessageDialog(
-                    "缺少 IP 地址",
-                    "请输入房主的局域网 IP 地址。\n"
-                    "房主在大厅里能看到自己的 IP（通常是 192.168.x.x）。\n"
-                    "如果搜到了房间，直接点右边列表里的房间也能加入。",
+                    "缺少房主地址",
+                    "请输入房主发来的地址，例如 192.168.1.5 或 192.168.1.5:28080。\n\n"
+                    "房主在大厅里能看到并一键复制这个地址；\n"
+                    "如果下面搜到了房间，直接点卡片就能加入。",
                     accent="warning"))
                 return
-            port = self._port_value()
+            host, port, error = diagnose.parse_target(raw, self._port_value())
+            if error:
+                self.notify(error, "warning")
+                return
+            if port != self._port_value():
+                # 玩家把端口写在地址里了：同步到端口框，让界面与事实一致
+                self.port_input.set_text(str(port))
             self.app.settings.remember_server(host, port)
             self.app.join_host(host, port, name, char)
 
@@ -562,13 +641,18 @@ class LanSetupScene(Scene):
             self.notify("端口必须是数字，已使用默认 28080", "warning")
             return 28080
 
-    # ---- 发现的房间
+    # ------------------------------------------------------------ 发现的房间
+
+    ROOM_ROW_H = 74
+
     def _room_row_rects(self) -> list[pygame.Rect]:
         rows = []
         for i, _room in enumerate(self.rooms[:12]):
-            rows.append(pygame.Rect(self.room_list.rect.x, 0, self.room_list.rect.width - 12,
-                                    54))
-            rows[-1].y = self.room_list.rect.y + 12 + i * 60 - self.room_list.offset()
+            rect = pygame.Rect(self.room_list.rect.x + 8, 0,
+                               self.room_list.rect.width - 24, self.ROOM_ROW_H - 8)
+            rect.y = (self.room_list.rect.y + 10 + i * self.ROOM_ROW_H
+                      - self.room_list.offset())
+            rows.append(rect)
         return rows
 
     def _join_discovered(self, index: int) -> None:
@@ -576,9 +660,15 @@ class LanSetupScene(Scene):
         if index >= len(self.rooms):
             return
         room = self.rooms[index]
-        if not room.joinable:
-            reason = "该房间已经开局" if room.phase != "lobby" else "该房间人数已满"
-            self.notify(f"{reason}，无法加入", "warning")
+        if not room.version_ok:
+            self.notify(f"「{room.room_name}」与本机版本不一致，无法加入"
+                        f"（对方 {room.app_version or '未知版本'}）", "warning")
+            return
+        if room.phase != "lobby":
+            self.notify(f"「{room.room_name}」已经开局了，无法加入", "warning")
+            return
+        if room.full:
+            self.notify(f"「{room.room_name}」人数已满", "warning")
             return
         self.host_input.set_text(room.ip)
         self.port_input.set_text(str(room.port))
@@ -598,7 +688,6 @@ class LanSetupScene(Scene):
             if self.mode == "join":
                 for i, rect in enumerate(self._room_row_rects()):
                     if rect.collidepoint(event.pos):
-                        self.selected_room = i
                         self._join_discovered(i)
                         return
         if self.gallery.handle_event(event):
@@ -607,9 +696,20 @@ class LanSetupScene(Scene):
 
     def update(self, dt: float) -> None:
         super().update(dt)
+        self._refresh_adapters()
+        mouse = pygame.mouse.get_pos()
         if self.listener is not None:
             self.rooms = self.listener.snapshot()
-            self.room_list.set_content_height(len(self.rooms) * 60 + 12)
+            self.room_list.set_content_height(len(self.rooms) * self.ROOM_ROW_H + 12)
+        else:
+            self.rooms = []
+        self.hover_room = -1
+        for i, rect in enumerate(self._room_row_rects()):
+            if rect.collidepoint(mouse):
+                self.hover_room = i
+                break
+
+    # ------------------------------------------------------------ 绘制
 
     def draw(self, surface: pygame.Surface) -> None:
         theme.vgradient(surface, pygame.Rect(0, 0, 1600, 900), (26, 36, 54), (18, 24, 36))
@@ -619,16 +719,16 @@ class LanSetupScene(Scene):
 
         self._draw_form_labels(surface, content_y)
         theme.draw_text(surface, "选择角色（鼠标悬停看被动能力）", self.fonts.small(),
-                        theme.color("text_dim"), (140, content_y + 82))
+                        theme.color("text_dim"), (120, content_y + 88))
         tips: list[str] = []
         self.gallery.draw(surface, self.fonts, tips)
         draw_character_card(surface, self.fonts, self.card_rect,
                             self.character_id, show_ai=False)
 
         if self.mode == "host":
-            self._draw_host_hint(surface)
+            self._draw_host_panel(surface, content_y)
         else:
-            self._draw_room_list(surface)
+            self._draw_room_list(surface, content_y)
 
         self.draw_widgets(surface)
         mouse = pygame.mouse.get_pos()
@@ -639,90 +739,175 @@ class LanSetupScene(Scene):
         y = content_y + 4
         if self.mode == "host":
             theme.draw_text(surface, "你的昵称", self.fonts.small(),
-                            theme.color("text_dim"), (140, y))
+                            theme.color("text_dim"), (120, y))
             theme.draw_text(surface, "房间名称", self.fonts.small(),
-                            theme.color("text_dim"), (500, y))
-            theme.draw_text(surface, "端口（默认 28080）", self.fonts.small(),
-                            theme.color("text_dim"), (900, y))
+                            theme.color("text_dim"), (380, y))
+            theme.draw_text(surface, "端口（一般不用改）", self.fonts.small(),
+                            theme.color("text_dim"), (700, y))
         else:
-            theme.draw_text(surface, "房主 IP（大厅里显示的那个 192.168.x.x）",
-                            self.fonts.small(), theme.color("text_dim"), (140, y))
-            theme.draw_text(surface, "端口", self.fonts.small(),
-                            theme.color("text_dim"), (540, y))
             theme.draw_text(surface, "你的昵称", self.fonts.small(),
-                            theme.color("text_dim"), (140, y - 46))
+                            theme.color("text_dim"), (120, y))
+            theme.draw_text(surface, "房主发来的地址（IP，可以带端口）", self.fonts.small(),
+                            theme.color("text_dim"), (380, y))
+            theme.draw_text(surface, "端口", self.fonts.small(),
+                            theme.color("text_dim"), (700, y))
 
-    def _draw_host_hint(self, surface: pygame.Surface) -> None:
-        rect = self.panel_rect
+    # ---- 建房页：本机地址预览
+
+    def _draw_host_panel(self, surface: pygame.Surface, content_y: int) -> None:
+        rect = self.host_panel_rect
         theme.panel(surface, rect, fill="panel", radius=theme.RADIUS["xl"])
         theme.section_header(surface, self.fonts,
-                             pygame.Rect(rect.x + 16, rect.y + 12, rect.width - 32, 22),
-                             "怎么让朋友加入？", icon="help")
-        lines = [
-            "1. 点下方「创建房间」",
-            "2. 大厅里会大字显示本机局域网 IP（例如 192.168.1.5）",
-            "3. 点大厅的「复制连接信息」，把 IP:端口发给朋友",
-            "4. 朋友打开同一个 EXE → 「加入房间」→ 粘贴进去",
-            "",
-            "· 两台电脑要在同一个 WiFi / 局域网下",
-            "· Windows 防火墙首次弹窗要勾选「专用网络」并允许",
-            "· 搜不到房间不影响联机，手动输入 IP 即可",
-        ]
-        y = rect.y + 54
-        for line in lines:
-            theme.draw_text(surface, line, self.fonts.small(), theme.color("text_dim"),
+                             pygame.Rect(rect.x + 18, rect.y + 14, rect.width - 36, 22),
+                             "这台电脑的局域网地址", icon="network")
+        # 复制按钮固定在右上，左侧文字统一按「避开按钮」的宽度截断
+        self.copy_button.rect.topleft = (rect.right - 202, rect.y + 66)
+        text_w = rect.width - 240
+
+        y = rect.y + 52
+        physical = [a for a in self.adapters if not a.is_virtual]
+        if not physical:
+            theme.draw_text(surface, "没有检测到可用的局域网地址。",
+                            self.fonts.body(), theme.color("danger"), (rect.x + 20, y))
+            theme.draw_text(surface, "请先连上 Wi-Fi 或插上网线，再回到这里。",
+                            self.fonts.small(), theme.color("text_dim"), (rect.x + 20, y + 26))
+        else:
+            from ..network import netinfo
+
+            first = physical[0]
+            note, level = netinfo.describe_address(first.ip)
+            theme.draw_text(surface, "创建房间后，把下面这一行发给室友：",
+                            self.fonts.small(), theme.color("text_dim"), (rect.x + 20, y))
+            y += 24
+            big = self.fonts.sized(theme.FONT["h1"], True)
+            theme.draw_text(surface, first.ip, big, theme.color("accent"), (rect.x + 20, y))
+            if first.name:
+                theme.draw_text(surface, first.name, self.fonts.tiny(),
+                                theme.color("text_mute"),
+                                (rect.x + 26 + big.size(first.ip)[0], y + 20))
+            y += big.get_linesize() + 4
+            theme.draw_text(surface, theme.truncate(note, self.fonts.small(), text_w),
+                            self.fonts.small(),
+                            theme.color(level if level != "text" else "text_dim"),
                             (rect.x + 20, y))
-            y += 27
-        theme.draw_text(surface, "连不上？主菜单里有「局域网诊断」，会告诉你本机状态。",
-                        self.fonts.tiny(), theme.color("accent"), (rect.x + 20, rect.bottom - 30))
+            y += 24
 
-    def _draw_room_list(self, surface: pygame.Surface) -> None:
+            for extra in physical[1:3]:
+                theme.draw_text(surface,
+                                theme.truncate(f"备选地址：{extra.ip}"
+                                               + (f"（{extra.name}）" if extra.name else ""),
+                                               self.fonts.small(), text_w),
+                                self.fonts.small(), theme.color("text_dim"),
+                                (rect.x + 20, y))
+                y += 21
+            if len(physical) > 1:
+                theme.draw_text(surface, "第一个连不上时，把备选地址也发给他",
+                                self.fonts.tiny(), theme.color("warning"), (rect.x + 20, y))
+                y += 21
+
+        virtual = [a for a in self.adapters if a.is_virtual]
+        if virtual:
+            names = "、".join(sorted({a.name or "虚拟网卡" for a in virtual})[:2])
+            theme.draw_text(surface,
+                            theme.truncate(f"已忽略虚拟网卡（室友连不上）：{names}",
+                                           self.fonts.tiny(), rect.width - 40),
+                            self.fonts.tiny(), theme.color("text_mute"),
+                            (rect.x + 20, y))
+            y += 21
+
+        # 步骤
+        theme.divider(surface, rect, y + 8)
+        y += 20
+        theme.draw_text(surface, "连起来只要三步", self.fonts.h3(),
+                        theme.color("text"), (rect.x + 20, y))
+        y += 26
+        for line in ("1. 点下面「创建房间」",
+                     "2. 大厅里点「复制连接信息」，粘给室友",
+                     "3. 室友点「加入房间」粘贴进去（或直接点搜到的房间卡片）"):
+            theme.draw_text(surface, line, self.fonts.small(),
+                            theme.color("text_dim"), (rect.x + 24, y))
+            y += 22
+        theme.draw_text(surface, "搜不到房间不影响联机，手动输入地址永远可用。",
+                        self.fonts.tiny(), theme.color("accent"), (rect.x + 20, y + 6))
+
+    # ---- 加入页：发现的房间
+
+    def _draw_room_list(self, surface: pygame.Surface, content_y: int) -> None:
         rect = self.panel_rect
         theme.panel(surface, rect, fill="panel", radius=theme.RADIUS["xl"])
         theme.section_header(surface, self.fonts,
-                             pygame.Rect(rect.x + 16, rect.y + 12, rect.width - 32, 22),
-                             "局域网内发现的房间", icon="network",
-                             note=f"{len(self.rooms)} 个")
+                             pygame.Rect(rect.x + 18, rect.y + 14, rect.width - 36, 22),
+                             "自动发现的房间", icon="network")
+        # 「重新搜索」固定在右上，提示文字限制宽度，避免两者叠字
+        self.rescan_button.rect.topleft = (rect.right - 178, rect.y + 46)
+        note = (f"{len(self.rooms)} 个房间 · 点整张卡片即可直接加入（每 1.5 秒刷新）"
+                if self.rooms else "还没有搜到房间，列表会自动刷新")
+        theme.draw_text(surface, theme.truncate(note, self.fonts.tiny(), rect.width - 240),
+                        self.fonts.tiny(), theme.color("text_mute"),
+                        (rect.x + 20, rect.y + 52))
+
         clip = surface.get_clip()
-        surface.set_clip(rect.inflate(0, -46).move(0, 22))
+        surface.set_clip(self.room_list.rect)
         if not self.rooms:
-            theme.draw_text(surface, self.status or "正在搜索…", self.fonts.body(),
-                            theme.color("text_mute"), (rect.centerx, rect.centery - 10),
-                            anchor="center")
-            theme.draw_text(surface, "搜不到不影响联机：手动输入 IP 即可。", self.fonts.small(),
-                            theme.color("text_mute"), (rect.centerx, rect.centery + 20),
-                            anchor="center")
-        mouse = pygame.mouse.get_pos()
-        for i, (row_rect, room) in enumerate(zip(self._room_row_rects(), self.rooms[:12])):
-            active = room.joinable
-            hovered = row_rect.collidepoint(mouse)
-            fill = "panel_hi" if (active and hovered) else ("bg_alt" if active else "bg")
-            theme.rounded_rect(surface, row_rect, theme.color(fill),
-                               radius=theme.RADIUS["md"])
-            theme.rounded_rect(surface, row_rect, None, radius=theme.RADIUS["md"],
-                               border=theme.color("success" if active else "border_soft"),
-                               border_width=2 if (active and hovered) else 1)
-            icons.draw_icon(surface, "network",
-                            pygame.Rect(row_rect.x + 12, row_rect.centery - 10, 20, 20),
-                            theme.color("success" if active else "text_mute"),
-                            theme.color("shadow"))
-            theme.draw_text(surface, theme.truncate(room.room_name, self.fonts.h3(), 220),
-                            self.fonts.h3(), theme.color("text"),
-                            (row_rect.x + 42, row_rect.y + 8))
-            detail = (f"{room.ip}:{room.port}　·　{room.players}/{room.max_players} 人"
-                      f"　·　{room.map_name}")
-            theme.draw_text(surface, theme.truncate(detail, self.fonts.tiny(),
-                                                    row_rect.width - 200),
-                            self.fonts.tiny(), theme.color("text_dim"),
-                            (row_rect.x + 42, row_rect.y + 32))
-            label = "点击加入" if active else ("已开局" if room.phase != "lobby" else "已满")
-            theme.chip(surface, self.fonts,
-                       pygame.Rect(row_rect.right - 92, row_rect.centery - 11, 80, 22),
-                       label, "success" if active else "text_mute", font_key="micro")
+            self._draw_empty_rooms(surface, rect)
+        for i, (row, room) in enumerate(zip(self._room_row_rects(), self.rooms[:12])):
+            self._draw_room_row(surface, row, room, hovered=(i == self.hover_room))
         surface.set_clip(clip)
-        self.room_list.draw_bar(surface, len(self.rooms) * 60 + 12)
-        theme.draw_text(surface, self.status, self.fonts.tiny(), theme.color("text_mute"),
-                        (rect.x + 20, rect.bottom - 26))
+        self.room_list.draw_bar(surface, len(self.rooms) * self.ROOM_ROW_H + 12)
+
+    def _draw_empty_rooms(self, surface: pygame.Surface, rect: pygame.Rect) -> None:
+        cx = rect.centerx
+        y = rect.y + 116
+        icons.draw_icon(surface, "network", pygame.Rect(cx - 22, y, 44, 44),
+                        theme.color("text_mute"), theme.color("shadow"))
+        y += 58
+        theme.draw_text(surface, self.status or "正在搜索同一局域网内的房间…",
+                        self.fonts.body(), theme.color("text_dim"), (cx, y), anchor="midtop")
+        y += 30
+        tips = [
+            "房间列表会一直刷新，房主一建房就会出现在这里。",
+            "搜不到也很正常：部分校园网 / 访客 WiFi 会屏蔽广播。",
+            "—— 这时让房主把「连接地址」发给你，填在左边手动加入即可。",
+        ]
+        for line in tips:
+            theme.draw_text(surface, line, self.fonts.small(), theme.color("text_mute"),
+                            (cx, y), anchor="midtop")
+            y += 24
+
+    def _draw_room_row(self, surface: pygame.Surface, row: pygame.Rect, room,
+                       hovered: bool) -> None:
+        from .player_panel import _color_of  # noqa: F401  (保持与其它场景一致的导入位置)
+
+        active = room.joinable
+        fill = "panel_hi" if (active and hovered) else ("bg_alt" if active else "bg")
+        theme.rounded_rect(surface, row, theme.color(fill), radius=theme.RADIUS["md"])
+        theme.rounded_rect(surface, row, None, radius=theme.RADIUS["md"],
+                           border=theme.color("success" if active else "border_soft"),
+                           border_width=2 if (active and hovered) else 1)
+
+        icons.draw_icon(surface, "network",
+                        pygame.Rect(row.x + 14, row.centery - 11, 22, 22),
+                        theme.color("success" if active else "text_mute"),
+                        theme.color("shadow"))
+        theme.draw_text(surface, theme.truncate(room.room_name, self.fonts.h3(), 300),
+                        self.fonts.h3(), theme.color("text"), (row.x + 46, row.y + 8))
+        host = f"房主 {room.host_name}　·　" if room.host_name else ""
+        detail = (f"{room.ip}:{room.port}　·　{host}"
+                  f"{room.players}/{room.max_players} 人　·　{room.map_name}")
+        theme.draw_text(surface, theme.truncate(detail, self.fonts.tiny(), row.width - 200),
+                        self.fonts.tiny(), theme.color("text_dim"), (row.x + 46, row.y + 32))
+        age = room.age_sec
+        fresh = "刚刚" if age < 3 else f"{int(age)} 秒前"
+        theme.draw_text(surface, f"{room.preset_name or '标准局'}　·　{fresh}",
+                        self.fonts.micro(), theme.color("text_mute"), (row.x + 46, row.y + 50))
+
+        label = room.status_label()
+        theme.chip(surface, self.fonts,
+                   pygame.Rect(row.right - 100, row.centery - 11, 88, 22),
+                   label, room.status_color(), font_key="micro")
+        if hovered and room.joinable:
+            theme.draw_text(surface, "点击加入", self.fonts.micro(), theme.color("accent"),
+                            (row.right - 12, row.bottom - 16), anchor="bottomright")
 
 
 class SaveBrowserScene(Scene):

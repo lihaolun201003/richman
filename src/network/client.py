@@ -83,11 +83,16 @@ class GameClient:
             "color_id": color_id,
         })
 
-    def reconnect(self, host: str, port: int, token: str, timeout: float = 5.0) -> None:
+    def reconnect(self, host: str, port: int, token: str, timeout: float = 1.5) -> None:
         """用重连 token 恢复座位。
 
         可以对同一个 GameClient 对象反复调用：每次都会关掉旧连接、
         重置内部标志，然后建立一条新连接并发送 RECONNECT。
+
+        超时刻意取得比较短（1.5 秒）：这个调用发生在主循环里，
+        超时越长界面冻结越久（v0.4 实测过 5 秒冻结）。局域网内
+        1.5 秒连不上，基本就是真的不通了，早点返回让玩家看到「正在重试」
+        比卡住不动更有意义。
         """
         if not token:
             raise ClientError("缺少重连凭证，无法恢复连接")

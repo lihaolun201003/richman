@@ -1,0 +1,11 @@
+{
+  "name": "客户端进程",
+  "host": "192.168.1.103",
+  "port": 28189,
+  "anim_speed": 2.0,
+  "ai_speed": 3.0,
+  "rounds": 3,
+  "max_seconds": 200.0,
+  "disconnect_at_turn": 8,
+  "disconnect_hold": 34.0
+}

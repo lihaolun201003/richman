@@ -11,6 +11,8 @@
 """
 from __future__ import annotations
 
+from collections import OrderedDict
+
 import os
 from typing import Any, Iterable, Sequence
 
@@ -382,6 +384,36 @@ def clear_caches() -> None:
     """丢弃绘制缓存（改变字体 / 主题后调用）。"""
     _GRADIENT_CACHE.clear()
     _GRADIENT_CACHE_ORDER.clear()
+    _TEXT_CACHE.clear()
+    _WRAP_CACHE.clear()
+
+
+#: 文本渲染缓存：`font.render` 是最贵的单步（中文尤其），
+#: 而界面里的字绝大多数每帧都一样（标题、标签、日志行）。
+#: v0.4 实测：没有这个缓存时，诊断页 35ms/帧、本局记录 26ms/帧，都超出 60FPS 预算。
+_TEXT_CACHE: "OrderedDict[tuple, pygame.Surface]" = OrderedDict()
+_TEXT_CACHE_LIMIT = 3000
+#: 折行缓存：`wrap_text` 逐字符量宽度，对中文长句是 O(n) 次 font.size()
+_WRAP_CACHE: "OrderedDict[tuple, list[str]]" = OrderedDict()
+_WRAP_CACHE_LIMIT = 1500
+
+
+def _cached_render(font: pygame.font.Font, text: str,
+                   color_value: tuple[int, ...]) -> pygame.Surface:
+    key = (font, text, color_value)
+    img = _TEXT_CACHE.get(key)
+    if img is not None:
+        _TEXT_CACHE.move_to_end(key)
+        return img
+    if len(color_value) == 4:
+        img = font.render(text, True, color_value[:3])
+        img.set_alpha(color_value[3])
+    else:
+        img = font.render(text, True, color_value)
+    _TEXT_CACHE[key] = img
+    if len(_TEXT_CACHE) > _TEXT_CACHE_LIMIT:
+        _TEXT_CACHE.popitem(last=False)
+    return img
 
 
 def draw_text(
@@ -393,26 +425,31 @@ def draw_text(
     anchor: str = "topleft",
     shadow: bool = False,
 ) -> pygame.Rect:
-    """绘制单行文本，返回其矩形。"""
+    """绘制单行文本，返回其矩形。相同的文本会复用已渲染的图片。"""
     if not text:
         return pygame.Rect(pos, (0, 0))
-    if len(color_value) == 4:
-        img = font.render(text, True, color_value[:3])
-        img.set_alpha(color_value[3])
-    else:
-        img = font.render(text, True, color_value)
+    img = _cached_render(font, text, color_value)
     rect = img.get_rect(**{anchor: pos})
     if shadow:
-        sh = font.render(text, True, color("shadow"))
+        sh = _cached_render(font, text, color("shadow"))
         surface.blit(sh, (rect.x + 1, rect.y + 2))
     surface.blit(img, rect)
     return rect
 
 
 def wrap_text(text: str, font: pygame.font.Font, max_width: int) -> list[str]:
-    """按像素宽度折行。中文按字符折，英文按单词折。"""
+    """按像素宽度折行。中文按字符折，英文按单词折。
+
+    结果按 (字体, 文本, 宽度) 缓存：折行是逐字符量宽度的，
+    对中文长句很贵，而同一段说明文字往往每帧都要重折一次。
+    """
     if not text:
         return []
+    key = (font, text, max_width)
+    cached = _WRAP_CACHE.get(key)
+    if cached is not None:
+        _WRAP_CACHE.move_to_end(key)
+        return cached
     lines: list[str] = []
     for paragraph in text.split("\n"):
         if not paragraph:
@@ -428,6 +465,9 @@ def wrap_text(text: str, font: pygame.font.Font, max_width: int) -> list[str]:
                 current = ch
         if current:
             lines.append(current)
+    _WRAP_CACHE[key] = lines
+    if len(_WRAP_CACHE) > _WRAP_CACHE_LIMIT:
+        _WRAP_CACHE.popitem(last=False)
     return lines
 
 

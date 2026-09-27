@@ -24,6 +24,7 @@ from ..game.events import ALERT_EVENTS, EventType
 from ..game.setup import create_engine
 from ..game.state import GameState
 from ..utils.logging_setup import get_logger
+from ..version import APP_VERSION
 from . import protocol as proto
 from .lobby import PHASE_FINISHED, PHASE_LOBBY, PHASE_PLAYING, LobbyState
 from .session import PlayerSession, new_player_id
@@ -80,6 +81,10 @@ class GameHost:
         self.running = False
         self.on_lobby_changed = None
         self.on_game_over = None
+        #: 诊断页「最近连接」用：上一次外部连接尝试的结果
+        self.last_connection_result: dict[str, Any] = {}
+        self.started_port = int(port)
+        self.app_version = APP_VERSION
 
         self._server_sock: socket.socket | None = None
         self._accept_thread: threading.Thread | None = None
@@ -113,6 +118,7 @@ class GameHost:
     def start(self) -> None:
         """绑定端口并开始接受连接。端口被占用时自动向后寻找。"""
         last_error: Exception | None = None
+        self.started_port = self.port
         for offset in range(0, 20):
             port = self.port + offset
             try:
@@ -130,7 +136,9 @@ class GameHost:
         self._accept_thread = threading.Thread(target=self._accept_loop, name="host-accept", daemon=True)
         self._accept_thread.start()
         log.info("房间已开启：%s 端口 %s", self.lobby.room_name, self.port)
-        self.notices.append(f"房间已在端口 {self.port} 开启")
+        if self.port != self.started_port:
+            self.notices.append(
+                f"端口 {self.started_port} 被占用，已自动改用 {self.port}")
 
     def _accept_loop(self) -> None:
         assert self._server_sock is not None
@@ -199,6 +207,7 @@ class GameHost:
             self._conns.append(conn)
             conn.send_message(proto.MessageType.WELCOME, {
                 "protocol_version": proto.PROTOCOL_VERSION,
+                "app_version": self.app_version,
                 "room_name": self.lobby.room_name,
                 "phase": self.lobby.phase,
                 "player_count": self.lobby.player_count,
@@ -247,9 +256,20 @@ class GameHost:
     ) -> None:
         ok, reason = proto.check_version(msg)
         if not ok:
-            conn.send_message(proto.MessageType.VERSION_MISMATCH, {"message": reason})
+            peer_version = str(msg.get("app_version", "") or "")
+            detail = reason if not peer_version else f"{reason}（对方 {peer_version}）"
+            conn.send_message(proto.MessageType.VERSION_MISMATCH, {
+                "message": detail,
+                "app_version": self.app_version,
+                "peer_version": peer_version,
+                "protocol_version": proto.PROTOCOL_VERSION,
+            })
             conn.close("version mismatch")
-            self.errors.append(reason)
+            self.errors.append(detail)
+            self.last_connection_result = {
+                "text": f"版本不一致：对方 {peer_version or '未知'}，本机 {self.app_version}",
+                "ok": False,
+            }
             return
 
         mtype = msg["type"]
@@ -264,13 +284,16 @@ class GameHost:
                 conn.latency_ms = max(0.0, (time.time() - sent_at) * 1000.0)
             return
 
-        # ---- 未加入座位时只允许 JOIN / RECONNECT
+        # ---- 未加入座位时只允许 JOIN / RECONNECT / PROBE
         if session is None:
             if mtype == proto.MessageType.JOIN_REQUEST:
                 self._handle_join(conn, msg)
                 return
             if mtype == proto.MessageType.RECONNECT:
                 self._handle_reconnect(conn, msg)
+                return
+            if mtype == proto.MessageType.PROBE:
+                self._handle_probe(conn, msg)
                 return
             conn.send_message(proto.MessageType.ERROR,
                               proto.make_error("invalid_command", "尚未加入房间"))
@@ -333,6 +356,37 @@ class GameHost:
             self._handle_command(session, msg)
             return
 
+    def _handle_probe(self, conn: TcpConnection, msg: dict[str, Any]) -> None:
+        """诊断页「测试连接」：回答「这里有没有房间、能不能进」，但不占座位。
+
+        刻意不做任何状态改动 —— 测试连接不应该影响正在进行的房间，
+        也不应该在房间里留下一个幽灵座位。
+        """
+        payload = {
+            "room": {
+                "room_name": self.lobby.room_name,
+                "phase": self.lobby.phase,
+                "players": self.lobby.player_count,
+                "max_players": self.lobby.max_players,
+                "map_name": self.lobby.map_name,
+                "preset_name": self.lobby.preset_label(),
+                "port": self.port,
+                "app_version": self.app_version,
+            },
+            "app_version": self.app_version,
+            "host_name": self._host_name(),
+        }
+        conn.send_message(proto.MessageType.PROBE_RESULT, payload)
+        if not self.last_connection_result:
+            self.last_connection_result = {
+                "text": f"有人从 {conn.addr[0]} 探测过本房间（连接正常）", "ok": True}
+
+    def _host_name(self) -> str:
+        for s in self.lobby.sessions:
+            if s.is_host:
+                return s.name
+        return ""
+
     def _require_host(self, session: PlayerSession) -> None:
         if session.player_id != self.lobby.host_player_id:
             if session.conn is not None:
@@ -351,6 +405,8 @@ class GameHost:
             conn.send_message(proto.MessageType.JOIN_REJECTED,
                               proto.make_error(err, proto.error_text(err)))
             log.info("拒绝加入 %s：%s", name, err)
+            self.last_connection_result = {
+                "text": f"拒绝了 {name} 的加入请求：{proto.error_text(err)}", "ok": False}
             return
 
         self._conn_player[id(conn)] = session.player_id
@@ -360,10 +416,14 @@ class GameHost:
             "reconnect_token": session.reconnect_token,
             "room_name": self.lobby.room_name,
             "host_player_id": self.lobby.host_player_id,
+            "host_name": self._host_name(),
             "port": self.port,
+            "app_version": self.app_version,
         })
         log.info("%s 加入了房间", name)
         self.notices.append(f"{name} 加入了房间")
+        self.last_connection_result = {
+            "text": f"{name} 成功加入房间（{conn.addr[0]}）", "ok": True}
         self.broadcast_lobby()
 
     def _handle_reconnect(self, conn: TcpConnection, msg: dict[str, Any]) -> None:
@@ -380,10 +440,12 @@ class GameHost:
         payload: dict[str, Any] = {
             "player_id": target.player_id,
             "reconnect_token": target.reconnect_token,
+            "app_version": self.app_version,
         }
         if self.engine is not None:
             player = self.engine.state.player(target.player_id)
             if player is not None:
+                was_bot = bool(player.bot_controlled)
                 player.disconnected = False
                 player.bot_controlled = False
                 ctrl = self.engine.controller_of(target.player_id)
@@ -391,14 +453,20 @@ class GameHost:
                     ctrl = RemoteController(target.player_id)
                     self.engine.bind_controller(target.player_id, ctrl)
                 ctrl.mark_connected()
-                self.engine.state.log(EventType.PLAYER_RECONNECTED,
-                                      f"{player.name} 重新连接成功", player.id)
+                msg = (f"{player.name} 重新连接成功并恢复控制" if was_bot
+                       else f"{player.name} 重新连接成功")
+                self.engine.state.log(EventType.PLAYER_RECONNECTED, msg, player.id,
+                                      {"alert": True, "was_bot": was_bot})
             payload["snapshot"] = self._snapshot_for_send()
         else:
             payload["lobby"] = self.lobby.to_dict()
 
         conn.send_message(proto.MessageType.RECONNECT_OK, payload)
-        self.notices.append(f"{target.name} 重新连接")
+        self.notices.append(
+            f"{target.name} 已重新连接" + ("（AI 已交还控制权）" if target.bot_takeover else ""))
+        target.bot_takeover = False
+        self.last_connection_result = {
+            "text": f"{target.name} 重新连接成功（{conn.addr[0]}）", "ok": True}
         self.broadcast_lobby()
         if self.engine is not None:
             self._force_broadcast()
@@ -440,8 +508,10 @@ class GameHost:
             player = self.engine.state.player(session.player_id)
             if player is not None:
                 player.disconnected = True
-                self.engine.state.log(EventType.PLAYER_DISCONNECTED,
-                                      f"{player.name} 与房间失去连接", player.id)
+                self.engine.state.log(
+                    EventType.PLAYER_DISCONNECTED,
+                    f"{player.name} 与房间失去连接（{int(RECONNECT_GRACE_SEC)} 秒内可重连）",
+                    player.id, {"alert": True})
             self.broadcast_lobby()
             self._force_broadcast()
         elif self.lobby.phase == PHASE_LOBBY:
@@ -461,13 +531,17 @@ class GameHost:
             player = self.engine.state.player(session.player_id)
             if player is not None:
                 player.bot_controlled = True
+                think = float(self.engine.state.rules.get("ai_think_sec", 0.45) or 0.45)
                 self.engine.bind_controller(
                     session.player_id,
                     AIController(session.player_id, difficulty=self.difficulty,
-                                 seed=abs(hash(session.player_id)) % 100000),
+                                 seed=abs(hash(session.player_id)) % 100000,
+                                 think_sec=think),
                 )
                 self.engine.state.log(EventType.PLAYER_BOT_TAKEOVER,
-                                      f"{player.name} 掉线超时，由 AI 代为操作", player.id)
+                                      f"{player.name} 掉线超过 {int(RECONNECT_GRACE_SEC)} 秒，"
+                                      f"由 AI 代为操作（回来可以接回控制权）",
+                                      player.id, {"alert": True})
                 self.notices.append(f"{player.name} 已由 AI 接管")
             self.broadcast_lobby()
             self._force_broadcast()
@@ -617,12 +691,21 @@ class GameHost:
     def room_info(self) -> dict[str, Any]:
         return {
             "room_name": self.lobby.room_name,
+            "host_name": self._host_name(),
             "port": self.port,
             "ips": self.ip_addresses(),
             "phase": self.lobby.phase,
             "players": self.lobby.player_count,
             "max_players": self.lobby.max_players,
+            "map_name": self.lobby.map_name,
+            "preset_name": self.lobby.preset_label(),
+            "app_version": self.app_version,
         }
+
+    def connection_hint(self) -> str:
+        """给玩家一行「把什么发给朋友」。"""
+        ip = self.primary_ip()
+        return f"{ip}:{self.port}"
 
     def drain_notices(self) -> list[str]:
         out = self.notices

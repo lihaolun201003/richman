@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 import traceback
 from typing import Any
 
@@ -42,6 +43,12 @@ log = get_logger(__name__)
 
 #: 每帧最大步长，避免窗口拖动后逻辑跳跃
 MAX_DT = 0.1
+
+#: 客户端的重连总时长。刻意比房主宽限期（RECONNECT_GRACE_SEC = 30 秒）长得多：
+#: 房主 30 秒后交给 AI 接管，而玩家可能正在重启 Wi-Fi、换网线、关掉重开客户端。
+#: 如果两边都是 30 秒，玩家回来时客户端早已放弃 —— 「AI 接管后接回控制权」
+#: 这条路径就永远走不到（v0.3 的实际问题）。
+CLIENT_RECONNECT_WINDOW = 150.0
 
 
 class App:
@@ -86,6 +93,10 @@ class App:
         self._reconnect_dialog: Any = None
         self._client_token = ""
         self._client_address = ("", 0)
+        #: 重要的瞬时状态提示（重连成功等）：居中淡入淡出，不打断操作
+        self.status_overlay: dict[str, Any] | None = None
+        #: 上一次连接尝试的结果（诊断页与加入页都会读它）
+        self.last_connection_result: dict[str, Any] = {}
 
         # 场景
         self.scenes = SceneManager(self)
@@ -135,12 +146,20 @@ class App:
         self.fonts.set_scale(self.settings.font_scale)
 
     def apply_animation_speed(self) -> None:
+        """把「动画速度」与「AI 演出速度」同步到所有正在运行的引擎。
+
+        两个设置都**只影响演出**：动画速度改阶段时长，AI 演出速度改
+        「等 AI 发呆」的时间，规则结果完全一致。
+        """
         speed = self.settings.animation_speed
+        ai_speed = self.settings.ai_speed
         if self.host is not None and self.host.engine is not None:
             self.host.engine.set_anim_speed(speed)
+            self.host.engine.set_ai_think_scale(ai_speed)
             self.host.anim_speed = speed
         if self.local_engine is not None:
             self.local_engine.set_anim_speed(speed)
+            self.local_engine.set_ai_think_scale(ai_speed)
         scene = self.scenes.current
         if isinstance(scene, GameScene):
             scene.anim.set_speed(speed)
@@ -359,10 +378,28 @@ class App:
         self._in_game = False
 
     def _enter_game(self, session: SessionView) -> None:
+        # 第一次进对局：给一个 6 步的轻量引导（高亮真实控件，可跳过、可永久关闭）
+        if (session.guide is None and session.tutorial is None
+                and self.settings.show_guide and not self.settings.guide_done):
+            session.guide = self._make_guide()
         scene = self.scenes.switch_to("game")
         if isinstance(scene, GameScene):
             scene.bind(session)
         self._in_game = True
+
+    def _make_guide(self) -> Any:
+        from .ui.guide import GuideOverlay
+
+        def _done(skip_all: bool) -> None:
+            self.settings.set("ui", "guide_done", True)
+            if skip_all:
+                self.settings.set("ui", "show_guide", False)
+                self.toast("已关闭新手引导（设置里可以重新打开）", "info")
+            else:
+                self.toast("引导结束，祝你好运！", "success")
+            self.settings.save()
+
+        return GuideOverlay(on_finish=_done)
 
     # ================================================================ 主循环
 
@@ -444,7 +481,10 @@ class App:
             return
         if client.connected:
             if self.reconnector is not None:
+                attempts = self.reconnector.attempts
                 self._close_reconnect_dialog()
+                detail = (f"第 {attempts} 次尝试成功" if attempts else "连接已恢复")
+                self.show_status("已重新连接到房间", detail, "success", 3.0)
                 self.toast("已重新连接，操作已恢复", "success")
             return
 
@@ -485,14 +525,28 @@ class App:
     def _begin_reconnect(self, client: GameClient) -> None:
         host, port = self._client_address
         self.reconnector = AutoReconnector(host, port, client.reconnect_token,
-                                           grace_sec=RECONNECT_GRACE_SEC)
+                                           grace_sec=CLIENT_RECONNECT_WINDOW)
         reason = client.disconnected_reason or "与房主的连接已中断"
         client.disconnected_reason = ""
-        dialog = _reconnect_dialog(reason, RECONNECT_GRACE_SEC,
-                                   on_give_up=self._abandon_reconnect)
+        attempts = max(1, int(CLIENT_RECONNECT_WINDOW
+                              / max(0.5, self.reconnector.interval)))
+        dialog = _reconnect_dialog(reason, CLIENT_RECONNECT_WINDOW,
+                                   on_give_up=self._abandon_reconnect,
+                                   on_retry=self._retry_now,
+                                   max_attempts=attempts,
+                                   takeover_after=RECONNECT_GRACE_SEC)
         self._reconnect_dialog = dialog
         self.push_modal(dialog)
         self.toast("连接中断，正在尝试自动重连…", "warning")
+
+    def _retry_now(self) -> None:
+        """【立即重试】：不等下一轮，马上再试一次。"""
+        rec = self.reconnector
+        client = self.client
+        if rec is None or client is None:
+            return
+        rec._next_attempt = 0.0        # 只提前节奏，不改状态机语义
+        self.toast("正在立即重试…", "info")
 
     def _sync_reconnect_dialog(self) -> None:
         dialog = self._reconnect_dialog
@@ -553,11 +607,59 @@ class App:
 
     def _render(self) -> None:
         self.scenes.draw(self.virtual)
+        self._draw_status_overlay(self.virtual)
         self.toasts.draw(self.virtual, self.fonts, center_x=800, bottom_y=872)
         if self.session_error:
             pass
         self.viewport.blit(self.virtual, self.screen)
         pygame.display.flip()
+
+    def _draw_status_overlay(self, surface: Any) -> None:
+        """居中状态提示（重连成功等）：淡入 → 停留 → 淡出。"""
+        overlay = self.status_overlay
+        if not overlay:
+            return
+        now = time.time()
+        total = float(overlay.get("seconds", 2.6))
+        elapsed = now - float(overlay.get("at", now))
+        if elapsed >= total:
+            self.status_overlay = None
+            return
+        from .ui import icons as ui_icons
+
+        appear = min(1.0, elapsed / 0.22)
+        fade = min(1.0, max(0.0, (total - elapsed) / 0.45))
+        alpha = int(255 * min(appear, fade))
+        if alpha <= 4:
+            return
+        fonts = self.fonts
+        font = fonts.h2()
+        sub_font = fonts.small()
+        text = str(overlay.get("text", ""))
+        sub = str(overlay.get("sub", ""))
+        color_name = str(overlay.get("color", "success"))
+        w = max(font.size(text)[0], sub_font.size(sub)[0] if sub else 0) + 96
+        h = 74 if sub else 56
+        rect = pygame.Rect(0, 0, int(w), h)
+        rect.center = (800, 300 - int((1.0 - appear) * 18))
+        layer = pygame.Surface(rect.size, pygame.SRCALPHA)
+        theme.rounded_rect(layer, layer.get_rect(), theme.color("panel_alt", 244), radius=14)
+        theme.rounded_rect(layer, layer.get_rect(), None, radius=14,
+                           border=theme.color(color_name), border_width=2)
+        ui_icons.draw_icon(layer, "check" if color_name == "success" else "network",
+                           pygame.Rect(18, 16, 26, 26), theme.color(color_name),
+                           theme.color("shadow"))
+        theme.draw_text(layer, text, font, theme.color("text"),
+                        (56, 12 if sub else (rect.height - font.get_height()) // 2))
+        if sub:
+            theme.draw_text(layer, sub, sub_font, theme.color("text_dim"), (58, 40))
+        layer.set_alpha(alpha)
+        surface.blit(layer, rect.topleft)
+
+    def show_status(self, text: str, sub: str = "", color: str = "success",
+                    seconds: float = 2.6) -> None:
+        self.status_overlay = {"text": text, "sub": sub, "color": color,
+                               "seconds": seconds, "at": time.time()}
 
     def _shutdown(self) -> None:
         try:
@@ -598,7 +700,11 @@ def _message(title: str, message: str, accent: str = "info", on_close=None):
     return MessageDialog(title, message, accent=accent, on_close=on_close)
 
 
-def _reconnect_dialog(reason: str, grace: float, on_give_up=None):
+def _reconnect_dialog(reason: str, grace: float, on_give_up=None,
+                      on_retry=None, max_attempts: int = 10,
+                      takeover_after: float = 30.0):
     from .ui.dialogs import ReconnectDialog
 
-    return ReconnectDialog(reason, grace_sec=grace, on_give_up=on_give_up)
+    return ReconnectDialog(reason, grace_sec=grace, on_give_up=on_give_up,
+                           on_retry=on_retry, max_attempts=max_attempts,
+                           takeover_after=takeover_after)

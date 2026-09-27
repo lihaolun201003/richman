@@ -87,7 +87,11 @@ class AIController(BaseController):
 
         self._waited += dt
         jitter = 0.85 + self.rng.random() * 0.3
-        if self._waited < self.think_sec * jitter:
+        # AI 演出速度：只缩短「等 AI 发呆」的时间，决策结果完全相同。
+        # 决策本身是几毫秒算完的，玩家需要的是看清它在做什么，而不是等它想。
+        scale = float(getattr(engine, "ai_think_scale", 1.0) or 1.0)
+        think = self.think_sec * jitter / max(0.25, scale)
+        if self._waited < think:
             return None
         plan = self._plan
         self._plan = None

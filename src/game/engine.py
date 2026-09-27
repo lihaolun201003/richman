@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from ..utils.logging_setup import get_logger
 from . import bankruptcy, cards as cards_mod, chance as chance_mod, economy, jail, modifiers as mods, movement, victory
+from .analytics import milestone_for_event, phase_time_bucket
 from .format import money_delta
 from .ledger import Reason
 from .commands import (
@@ -95,6 +96,8 @@ class GameEngine:
         self.chance_registry = chance_registry
         self.card_registry = card_registry
         self.anim_speed = max(0.25, float(anim_speed))
+        #: AI 演出速度倍率：只影响「AI 回合的等待感」，不改变任何规则结果
+        self.ai_think_scale = 1.0
         self.controllers: dict[str, Any] = {}
         self.outbox: list[Any] = []
         self.dirty = True
@@ -102,6 +105,16 @@ class GameEngine:
         self.listener: Callable[[Any], None] | None = None
         self.paused = False
         self.state.rules.setdefault("move_tile_sec", MOVE_TILE_SEC)
+
+        # ---- 对局分析用（只读统计，不参与规则）
+        self._turn_started_clock: float | None = None
+        self._turn_player_id: str | None = None
+        self._decision_id: str | None = None
+        self._decision_acc: float = 0.0
+        self._decision_owner_ai: bool = False
+        self._analytics_seq = 0
+        self._sampled_round = 0
+        self._seen_monopoly_log: set[str] = set()
 
     # ================================================================ 生命周期
 
@@ -116,6 +129,14 @@ class GameEngine:
         st = self.state
         rules = st.rules
         start_index = st.board.start_index()
+        # 每局重新开始统计（再来一局时不能把上一局的时间带过来）
+        st.analytics = type(st.analytics)()
+        self._analytics_seq = 0
+        self._sampled_round = 0
+        self._decision_id = None
+        self._decision_acc = 0.0
+        self._turn_player_id = None
+        self._turn_started_clock = None
 
         for p in st.players:
             p.position = start_index
@@ -164,6 +185,7 @@ class GameEngine:
             return
         dt = max(0.0, min(dt, 0.25))
         st.clock += dt
+        self._track_analytics(dt)
 
         # 1) 有决策待处理 → 询问对应控制器
         if st.pending_decision is not None:
@@ -197,6 +219,89 @@ class GameEngine:
             log.warning("决策阶段缺少决策，强制推进：%s", st.phase.value)
             st.log(EventType.INFO, f"流程修正：{st.phase.value} 阶段无待处理决策")
             self._enter_phase(GamePhase.TURN_END)
+
+    # ================================================================ 分析统计
+
+    def set_ai_think_scale(self, scale: float) -> None:
+        """AI 演出速度（1.0 正常 / 更大更快）。只影响展示，不改规则。"""
+        self.ai_think_scale = max(0.25, float(scale or 1.0))
+
+    def set_anim_speed(self, speed: float) -> None:
+        self.anim_speed = max(0.25, float(speed or 1.0))
+
+    def _track_analytics(self, dt: float) -> None:
+        """累计「时间都去哪了」。纯统计，任何异常都不应影响对局。"""
+        try:
+            self._track_analytics_inner(dt)
+        except Exception:  # pragma: no cover - 统计失败不能拖垮游戏
+            log.debug("分析统计异常", exc_info=True)
+
+    def _track_analytics_inner(self, dt: float) -> None:
+        st = self.state
+        a = st.analytics
+
+        bucket = phase_time_bucket(st.phase)
+        if bucket == "move":
+            a.move_time += dt
+        elif bucket == "anim":
+            a.anim_time += dt
+
+        # 决策耗时：按「同一个决策 id 持续了多久」结算，而不是逐帧累加
+        pd = st.pending_decision
+        if pd is None:
+            self._flush_decision_time()
+        elif pd.id != self._decision_id:
+            self._flush_decision_time()
+            self._decision_id = pd.id
+            self._decision_acc = 0.0
+            self._decision_owner_ai = self._decision_is_ai(pd.player_id)
+        else:
+            self._decision_acc += dt
+
+        # 事件 → 里程碑 / 经济计数
+        new_events = [e for e in st.event_log if e.seq > self._analytics_seq]
+        if new_events:
+            self._analytics_seq = new_events[-1].seq
+            for ev in new_events:
+                # 单条统计失败绝不能影响其它事件（否则会静默丢失一整批计数）
+                try:
+                    milestone_for_event(a, st, ev)
+                except Exception:  # pragma: no cover
+                    log.debug("里程碑统计失败：%s", ev.type, exc_info=True)
+
+        # 每轮采样一次总现金（用于「平均现金」）
+        if st.round_number != self._sampled_round:
+            self._sampled_round = st.round_number
+            a.sample_cash(sum(p.money for p in st.players))
+
+    def _flush_decision_time(self) -> None:
+        if self._decision_id is None:
+            return
+        acc = self._decision_acc
+        is_ai = self._decision_owner_ai
+        self._decision_id = None
+        self._decision_acc = 0.0
+        if acc <= 0:
+            return
+        self.state.analytics.add_decision(is_ai, acc)
+
+    def _decision_is_ai(self, player_id: str) -> bool:
+        """这个座位的决策是不是 AI 在做（只看控制器类型与玩家属性）。"""
+        player = self.state.player(player_id)
+        if player is not None and player.is_ai:
+            return True
+        ctrl = self.controllers.get(player_id)
+        return type(ctrl).__name__ == "AIController"
+
+    def _close_turn_timer(self) -> None:
+        """结算「上一个回合花了多久」。"""
+        st = self.state
+        if self._turn_player_id is not None and self._turn_started_clock is not None:
+            seconds = st.clock - self._turn_started_clock
+            if seconds > 0:
+                st.analytics.add_turn_time(self._turn_player_id, seconds)
+        self._turn_player_id = None
+        self._turn_started_clock = None
 
     # ================================================================ 命令入口
 
@@ -516,9 +621,30 @@ class GameEngine:
             return
         if duration is None:
             duration = phase_duration(phase)
+            duration = self._scaled_duration(duration)
         st.set_phase(phase, duration)
         st.bump()
         self.dirty = True
+
+    def _scaled_duration(self, duration: float) -> float:
+        """演出时长缩放：预设的 phase_scale（聚会局把过场压短）+ AI 演出速度。
+
+        注意：这里改的是**演出时长**（骰子动画、结算停顿、过场），
+        决策阶段的 duration 恒为 0，因此不会跳过任何玩家操作窗口，
+        也不会改变任何规则结果。
+        """
+        if duration <= 0:
+            return duration
+        scale = float(self.state.rules.get("phase_scale", 1.0) or 1.0)
+        duration = duration * scale
+        if self.ai_think_scale <= 1.0:
+            return duration
+        cur = self.state.current_player_id
+        if cur is None:
+            return duration
+        if not self._decision_is_ai(cur):
+            return duration
+        return duration / self.ai_think_scale
 
     def _on_phase_finished(self) -> None:
         st = self.state
@@ -553,11 +679,15 @@ class GameEngine:
         if cur is None:
             self._check_game_over()
             return
+        # 上一个回合到此为止（统计用）
+        self._close_turn_timer()
         st.turn_number += 1
         st.turn_rolled = False
         st.doubles_count = 0
         st.chance_depth = 0
         cur.stats["turns_played"] = cur.stats.get("turns_played", 0) + 1
+        self._turn_player_id = cur.id
+        self._turn_started_clock = st.clock
 
         st.log(EventType.TURN_START, msg_turn_start(cur.name, st.round_number), cur.id,
                {"round": st.round_number, "turn": st.turn_number})
@@ -656,6 +786,7 @@ class GameEngine:
             return
 
         self._advance_player()
+        self._close_turn_timer()
         self._check_game_over()
         if not st.game_over:
             self._begin_turn()
@@ -1247,7 +1378,8 @@ class GameEngine:
 
         # 买完全组 → 提示垄断
         if prop.district and st.district_owned_all(player.id, prop.district):
-            st.log(EventType.INFO, f"{player.name} 垄断了「{prop.district}」，该区租金翻倍！",
+            st.log(EventType.PROPERTY_MONOPOLY,
+                   f"{player.name} 集齐「{prop.district}」，该区租金翻倍！",
                    player.id, {"district": prop.district, "alert": True})
         self._enter_phase(GamePhase.TURN_END)
         return CommandResult(True)
@@ -1809,6 +1941,7 @@ class GameEngine:
         winner = victory.check_winner(st) or victory.check_max_rounds(st)
         if winner is None:
             return False
+        self._close_turn_timer()
         st.winner_id = winner
         st.game_over = True
         st.ended_at = __import__("time").time()
