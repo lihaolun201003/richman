@@ -149,13 +149,17 @@ def main() -> int:
 
         if args.full_game:
             print("\n[4] 真实窗口下跑完整局直到结算")
-            app.settings.set("ui", "animation_speed", 30.0)
+            # 真实窗口下每帧都要真的渲染（~60fps），因此整局需要的时间比
+            # dummy 驱动长得多：把动画拉到最快，并给足 12 分钟预算。
+            app.settings.set("ui", "animation_speed", 60.0)
             app.apply_animation_speed()
             t0 = time.time()
             guard = 0
-            max_guard = 240000
+            max_guard = 600000
+            budget = 720.0
             game_over_shown = False
-            while guard < max_guard and time.time() - t0 < 300:
+            last_report = 0.0
+            while guard < max_guard and time.time() - t0 < budget:
                 guard += 1
                 scene = app.scenes.current
                 modal = getattr(scene, "modal", None)
@@ -194,7 +198,16 @@ def main() -> int:
                         app.running = False
                 app.update(DT)
                 app._render()
-                time.sleep(0.002)
+                # 每 30 秒报一次进度，避免长时间没有输出让人以为卡住了
+                if time.time() - last_report > 30:
+                    last_report = time.time()
+                    st_now = app.local_engine.state if app.local_engine else None
+                    if st_now is not None:
+                        print(f"    …第 {st_now.round_number} 轮 / "
+                              f"{st_now.turn_number} 回合，"
+                              f"破产 {sum(1 for p in st_now.players if p.bankrupt)} 人",
+                              flush=True)
+                time.sleep(0.001)
 
             st = app.local_engine.state if app.local_engine else None
             if st is not None:

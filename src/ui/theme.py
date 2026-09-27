@@ -1,19 +1,61 @@
-"""主题：颜色、字体、绘制辅助。
+"""主题与设计系统：颜色、字体、间距、控件度量、绘制辅助。
 
-字体策略：在系统字体里按优先级查找可用的中文字体，
-绝不绑定某台机器的绝对路径；找不到时退回 pygame 默认字体并给出提示，
-但不会崩溃，也不会出现一堆方块（会退化为可见的缺字提示）。
+这里是全项目**唯一**的视觉语言出口：
+- 颜色、间距（SPACE）、圆角（RADIUS）、按钮高度（BTN_H）、字号（FONT）
+  都以命名常量给出，场景里不允许再出现散落的 magic number；
+- 组合组件（panel / page_title / section / chip / stat / kv_row）统一在这里实现，
+  避免每个 Scene 自己画一套「标题 + 分隔线 + 面板」；
+- 字体策略：在系统字体里按优先级查找可用的中文字体，
+  绝不绑定某台机器的绝对路径；找不到时退回 pygame 默认字体并给出提示。
+  需要符号时不要用文字符号（`▶` `▮` 会变成豆腐块），统一走 `icons.draw_icon`。
 """
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, Iterable, Sequence
 
 import pygame
 
 from ..utils.logging_setup import get_logger
 
 log = get_logger(__name__)
+
+# ==================================================================== 度量 token
+
+#: 间距阶梯（4 的倍数，全项目统一）
+SPACE = {"xxs": 2, "xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24, "xxl": 32, "huge": 48}
+
+#: 圆角阶梯
+RADIUS = {"xs": 6, "sm": 8, "md": 10, "lg": 12, "xl": 16, "xxl": 20, "pill": 999}
+
+#: 按钮高度
+BTN_H = {"sm": 32, "md": 44, "lg": 56, "xl": 68}
+
+#: 字号阶梯（按 1600×900 逻辑分辨率设计）
+FONT = {
+    "title": 56, "huge": 40, "h1": 34, "big": 30, "h2": 24, "money": 22,
+    "h3": 20, "body": 17, "button": 19, "small": 15, "tiny": 13, "micro": 11,
+}
+
+#: 标准内容区（页面左右留白 / 起始 y）
+PAGE_X = 120
+PAGE_TOP = 72
+CONTENT_RIGHT = 1480
+
+#: 语义色（供 need_color() 使用）：把「语义」映射到具体颜色名
+SEMANTIC = {
+    "neutral": "text",
+    "muted": "text_dim",
+    "positive": "success",
+    "negative": "danger",
+    "warning": "warning",
+    "accent": "accent",
+    "info": "info",
+}
+
+
+def need_color(name: str | None) -> str:
+    return SEMANTIC.get(name or "", name or "text")
 
 # ==================================================================== 颜色
 
@@ -59,9 +101,12 @@ COLORS: dict[str, tuple[int, int, int]] = {
     "t_property": (120, 168, 232),
     "t_station": (156, 138, 232),
     "t_chance": (248, 186, 72),
+    "t_fortune": (72, 190, 150),
+    "t_disaster": (226, 106, 96),
     "t_tax": (232, 116, 100),
     "t_jail": (140, 148, 164),
     "t_go_jail": (216, 108, 120),
+    "t_shop": (238, 158, 88),
     "t_park": (108, 196, 168),
     "t_bonus": (240, 160, 96),
 
@@ -75,12 +120,70 @@ TILE_TYPE_COLORS = {
     "PROPERTY": "t_property",
     "STATION": "t_station",
     "CHANCE": "t_chance",
+    "FORTUNE": "t_fortune",
+    "DISASTER": "t_disaster",
     "TAX": "t_tax",
     "JAIL": "t_jail",
     "GO_TO_JAIL": "t_go_jail",
+    "SHOP": "t_shop",
     "PARK": "t_park",
     "BONUS": "t_bonus",
 }
+
+#: 格子类型 → 矢量图标名（icons.py）。这是「不同类型格子有不同图形」的唯一来源。
+TILE_TYPE_ICONS = {
+    "START": "start",
+    "PROPERTY": "property",
+    "STATION": "station",
+    "CHANCE": "star",
+    "FORTUNE": "fortune",
+    "DISASTER": "disaster",
+    "TAX": "tax",
+    "JAIL": "jail",
+    "GO_TO_JAIL": "police",
+    "SHOP": "shop",
+    "PARK": "park",
+    "BONUS": "trophy",
+}
+
+#: 片区配色（按片区名稳定分配，同一张地图内不重复）
+DISTRICT_PALETTE = [
+    (96, 156, 232),   # 蓝
+    (232, 122, 96),   # 砖红
+    (108, 196, 140),  # 绿
+    (196, 138, 232),  # 紫
+    (236, 178, 72),   # 金
+    (86, 190, 200),   # 青
+    (226, 118, 168),  # 粉
+    (150, 170, 96),   # 橄榄
+    (128, 140, 224),  # 靛
+    (214, 146, 92),   # 棕橙
+    (108, 176, 116),  # 深绿
+    (208, 106, 118),  # 玫红
+    (124, 164, 196),  # 灰蓝
+    (176, 148, 96),   # 卡其
+]
+
+
+def district_palette(district_names: Sequence[str]) -> dict[str, tuple[int, int, int]]:
+    """给一组片区名分配稳定且互不重复的颜色。
+
+    顺序按传入顺序（调用方应传入地图中片区首次出现的顺序），
+    这样同一张地图每次运行的颜色完全一致，玩家能形成记忆。
+    """
+    out: dict[str, tuple[int, int, int]] = {}
+    for i, name in enumerate(district_names):
+        out[name] = DISTRICT_PALETTE[i % len(DISTRICT_PALETTE)]
+    return out
+
+
+def tile_color(tile_type_value: str) -> tuple[int, int, int]:
+    """格子类型色。未知类型退回地产色，但不会 KeyError。"""
+    return color(TILE_TYPE_COLORS.get(tile_type_value, "t_property"))
+
+
+def tile_icon(tile_type_value: str) -> str:
+    return TILE_TYPE_ICONS.get(tile_type_value, "property")
 
 
 def color(name: str, alpha: int | None = None) -> tuple[int, ...]:
@@ -243,20 +346,42 @@ def shadow_rect(
     surface.blit(layer, r.topleft)
 
 
+#: 渐变缓存：全屏渐变每帧重画要 900 次 draw.line，
+#: 而它的内容只取决于尺寸与两个端点色，因此缓存下来直接用 blit。
+_GRADIENT_CACHE: dict[tuple, pygame.Surface] = {}
+_GRADIENT_CACHE_ORDER: list[tuple] = []
+_GRADIENT_CACHE_LIMIT = 12
+
+
 def vgradient(surface: pygame.Surface, rect: pygame.Rect,
               top: tuple[int, ...], bottom: tuple[int, ...]) -> None:
-    """竖直渐变填充。"""
+    """竖直渐变填充（带缓存）。"""
     rect = pygame.Rect(rect)
     if rect.height <= 0 or rect.width <= 0:
         return
-    for y in range(rect.height):
-        t = y / max(1, rect.height - 1)
-        col = (
-            int(top[0] + (bottom[0] - top[0]) * t),
-            int(top[1] + (bottom[1] - top[1]) * t),
-            int(top[2] + (bottom[2] - top[2]) * t),
-        )
-        pygame.draw.line(surface, col, (rect.x, rect.y + y), (rect.right - 1, rect.y + y))
+    key = (rect.width, rect.height, tuple(top[:3]), tuple(bottom[:3]))
+    cached = _GRADIENT_CACHE.get(key)
+    if cached is None:
+        cached = pygame.Surface((rect.width, rect.height))
+        for y in range(rect.height):
+            t = y / max(1, rect.height - 1)
+            col = (
+                int(top[0] + (bottom[0] - top[0]) * t),
+                int(top[1] + (bottom[1] - top[1]) * t),
+                int(top[2] + (bottom[2] - top[2]) * t),
+            )
+            pygame.draw.line(cached, col, (0, y), (rect.width - 1, y))
+        _GRADIENT_CACHE[key] = cached
+        _GRADIENT_CACHE_ORDER.append(key)
+        while len(_GRADIENT_CACHE_ORDER) > _GRADIENT_CACHE_LIMIT:
+            _GRADIENT_CACHE.pop(_GRADIENT_CACHE_ORDER.pop(0), None)
+    surface.blit(cached, rect.topleft)
+
+
+def clear_caches() -> None:
+    """丢弃绘制缓存（改变字体 / 主题后调用）。"""
+    _GRADIENT_CACHE.clear()
+    _GRADIENT_CACHE_ORDER.clear()
 
 
 def draw_text(
@@ -372,3 +497,235 @@ def mix(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[int
         int(a[1] + (b[1] - a[1]) * t),
         int(a[2] + (b[2] - a[2]) * t),
     )
+
+
+class Fonts:
+    """字号语义名 → FontManager 查询的便捷包装。
+
+    场景里写 `fonts.body()` 之类没问题，但新代码更推荐 `T.body`，
+    这样字号阶梯只在一处定义。
+    """
+
+    def __init__(self, manager: "FontManager") -> None:
+        self._m = manager
+
+    def get(self, key: str, bold: bool | None = None) -> pygame.font.Font:
+        size = FONT.get(key, FONT["body"])
+        if bold is None:
+            bold = key in ("title", "huge", "h1", "big", "h2", "h3", "money", "button")
+        return self._m.sized(size, bold)
+
+
+def styled(fonts: "FontManager", key: str, bold: bool | None = None) -> pygame.font.Font:
+    """按字号 token 取字体：styled(fonts, "h3") / styled(fonts, "body", bold=False)。"""
+    return Fonts(fonts).get(key, bold)
+
+
+# ==================================================================== 组合组件
+
+def panel(
+    surface: pygame.Surface,
+    rect: pygame.Rect | Sequence[int],
+    *,
+    fill: str = "panel",
+    border: str | None = "border_soft",
+    radius: int = RADIUS["xl"],
+    alpha: int | None = None,
+    shadow: bool = False,
+) -> pygame.Rect:
+    """统一的面板底板。所有卡片 / 分组 / 侧栏都用它，保证圆角与描边一致。"""
+    r = pygame.Rect(rect)
+    if shadow:
+        shadow_rect(surface, r, radius=radius, spread=6, alpha=140)
+    fill_value = color(fill, alpha) if alpha is not None else color(fill)
+    rounded_rect(surface, r, fill_value, radius=radius)
+    if border:
+        rounded_rect(surface, r, None, radius=radius, border=color(border), border_width=1)
+    return r
+
+
+def divider(surface: pygame.Surface, rect: pygame.Rect | Sequence[int], y: int | None = None,
+            inset: int = 0, color_name: str = "border_soft") -> None:
+    """面板内的水平分隔线。"""
+    r = pygame.Rect(rect)
+    line_y = r.y if y is None else y
+    pygame.draw.line(surface, color(color_name),
+                     (r.x + inset, line_y), (r.right - inset, line_y), 1)
+
+
+def page_content_top(fonts: "FontManager", subtitle: str = "",
+                     y: int = PAGE_TOP) -> int:
+    """与 `page_title` 完全一致的内容区起始 y（不绘制）。
+
+    场景在 `_build()` 里排布控件时需要先知道这个值，
+    因此把计算单独抽出来，避免「标题画在哪」和「内容排在哪」两套算法打架。
+    """
+    top = y + fonts.sized(FONT["h1"], True).get_linesize() + SPACE["xs"]
+    if subtitle:
+        top += fonts.sized(FONT["small"]).get_linesize()
+    return top + SPACE["md"] + 1 + SPACE["lg"]
+
+
+def page_title(
+    surface: pygame.Surface,
+    fonts: "FontManager",
+    title: str,
+    subtitle: str = "",
+    *,
+    x: int = PAGE_X,
+    y: int = PAGE_TOP,
+    divider_after: bool = True,
+    right: int = CONTENT_RIGHT,
+) -> int:
+    """页面顶部标题块，返回内容区的起始 y。
+
+    这样写是为了根治「标题与副标题叠字」——
+    副标题的位置由标题的实际行高算出来，而不是各写一个 magic number。
+    """
+    title_font = fonts.sized(FONT["h1"], True)
+    rect = draw_text(surface, title, title_font, color("text"), (x, y))
+    next_y = rect.bottom + SPACE["xs"]
+    if subtitle:
+        sub_font = fonts.sized(FONT["small"])
+        draw_text(surface, subtitle, sub_font, color("text_dim"), (x + 2, next_y))
+        next_y += sub_font.get_linesize()
+    next_y += SPACE["md"]
+    if divider_after:
+        pygame.draw.line(surface, color("border_soft"), (x, next_y), (right, next_y), 1)
+    return page_content_top(fonts, subtitle, y)
+
+
+def section_header(
+    surface: pygame.Surface,
+    fonts: "FontManager",
+    rect: pygame.Rect | Sequence[int],
+    title: str,
+    *,
+    icon: str | None = None,
+    accent: str = "text",
+    note: str = "",
+    note_color: str = "text_mute",
+) -> int:
+    """面板内的小标题行，返回其下内容起始 y。"""
+    r = pygame.Rect(rect)
+    x = r.x
+    if icon:
+        from . import icons
+
+        icons.draw_icon(surface, icon, pygame.Rect(x, r.y + 1, 18, 18), color(accent))
+        x += 26
+    font = fonts.sized(FONT["h3"], True)
+    text_rect = draw_text(surface, title, font, color(accent), (x, r.y))
+    if note:
+        note_font = fonts.sized(FONT["tiny"])
+        draw_text(surface, note, note_font, color(note_color),
+                  (r.right, r.y + 5), anchor="topright")
+    return max(text_rect.bottom, r.y + 22)
+
+
+def chip(
+    surface: pygame.Surface,
+    fonts: "FontManager",
+    rect: pygame.Rect | Sequence[int],
+    text: str,
+    color_name: str = "text_dim",
+    *,
+    filled: bool = False,
+    font_key: str = "micro",
+    radius: int = RADIUS["xs"],
+) -> pygame.Rect:
+    """小标签（已破产 / 已准备 / 关押 2/3 / 垄断）。"""
+    r = pygame.Rect(rect)
+    accent = color(color_name)
+    if filled:
+        rounded_rect(surface, r, color(color_name, 70), radius=radius)
+    rounded_rect(surface, r, None, radius=radius, border=accent, border_width=1)
+    font = fonts.sized(FONT[font_key], True)
+    draw_text(surface, truncate(text, font, r.width - 8), font, accent,
+              r.center, anchor="center")
+    return r
+
+
+def chip_width(fonts: "FontManager", text: str, font_key: str = "micro",
+               padding: int = 12) -> int:
+    return fonts.sized(FONT[font_key], True).size(text)[0] + padding
+
+
+def stat(
+    surface: pygame.Surface,
+    fonts: "FontManager",
+    x: int,
+    y: int,
+    label: str,
+    value: str,
+    *,
+    color_name: str = "text",
+    label_color: str = "text_mute",
+    value_key: str = "h3",
+    width: int = 0,
+) -> int:
+    """「标签在上、数值在下」的小统计块，返回块宽度。"""
+    label_font = fonts.sized(FONT["tiny"])
+    value_font = fonts.sized(FONT[value_key], True)
+    draw_text(surface, label, label_font, color(label_color), (x, y))
+    draw_text(surface, value, value_font, color(color_name), (x, y + label_font.get_linesize() + 2))
+    return width or max(label_font.size(label)[0], value_font.size(value)[0])
+
+
+def kv_row(
+    surface: pygame.Surface,
+    fonts: "FontManager",
+    rect: pygame.Rect | Sequence[int],
+    y: int,
+    label: str,
+    value: str,
+    *,
+    label_color: str = "text_dim",
+    value_color: str = "text",
+    value_key: str = "small",
+    row_h: int = 22,
+    bold_value: bool = False,
+) -> int:
+    """左标签右数值的标准信息行，返回值行的 y 步进。"""
+    r = pygame.Rect(rect)
+    label_font = fonts.sized(FONT["small"])
+    value_font = fonts.sized(FONT[value_key], bold_value)
+    draw_text(surface, label, label_font, color(label_color), (r.x, y))
+    draw_text(surface, truncate(value, value_font, max(40, r.width - label_font.size(label)[0] - 20)),
+              value_font, color(value_color), (r.right, y), anchor="topright")
+    return row_h
+
+
+def progress_bar(
+    surface: pygame.Surface,
+    rect: pygame.Rect | Sequence[int],
+    ratio: float,
+    *,
+    color_name: str = "accent",
+    track: str = "bg_alt",
+    radius: int | None = None,
+) -> None:
+    """细进度条（债务筹资进度 / 血量 / 进度提示）。"""
+    r = pygame.Rect(rect)
+    radius = r.height // 2 if radius is None else radius
+    rounded_rect(surface, r, color(track), radius=radius)
+    ratio = max(0.0, min(1.0, ratio))
+    w = int(r.width * ratio)
+    if w >= 2:
+        rounded_rect(surface, pygame.Rect(r.x, r.y, w, r.height), color(color_name),
+                     radius=radius)
+
+
+def money_text(value: int | float, *, sign: bool = False) -> str:
+    """统一金额文本：¥ 15,000 / + ¥ 800 / - ¥ 800。"""
+    from ..game.format import money, money_delta
+
+    return money_delta(value) if sign else money(value)
+
+
+def money_color_name(value: int | float, *, income_positive: bool = True) -> str:
+    if value > 0:
+        return "success" if income_positive else "danger"
+    if value < 0:
+        return "danger" if income_positive else "success"
+    return "text_mute"

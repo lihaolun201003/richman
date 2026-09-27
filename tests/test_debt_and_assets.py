@@ -497,3 +497,96 @@ def test_ledger_survives_serialization(engine_no_ai):
     restored = ser.state_from_snapshot(st.to_dict())
     assert len(restored.ledger.entries) == n
     assert restored.ledger.player_summary(player.id) == st.ledger.player_summary(player.id)
+
+
+# ==================================================================== v0.3 回归
+#
+# 下面这些测试都对应 v0.3 期间真实发现并修掉的 Bug，
+# 每一条都注明「当时是怎么坏的」，避免以后被无意改回去。
+
+def test_sell_property_command_is_accepted_during_debt_resolution(engine_no_ai):
+    """回归：债务处理里点「出售」会被引擎拒绝，导致界面永久卡在等待状态。
+
+    当时的原因：债务决策的选项命令类型是 SELL_ASSET，
+    而资产面板发的是 SELL_PROPERTY，语义匹配认不出来 → 返回
+    「当前问题不接受命令」→ revision 不前进 → 面板的 busy 永远不解除。
+    """
+    eng = engine_no_ai
+    st = eng.state
+    player, cheap = _make_debt_scenario(eng, 0)
+    eng._start_debt_resolution(player, 10 ** 6, st.players[1].id, "测试欠款")
+    assert st.debt is not None, "前置条件：应该处于债务处理"
+
+    rev_before = st.revision
+    result = eng.submit_command(Command(
+        ctype=CommandType.SELL_PROPERTY, player_id=player.id,
+        payload={"property_id": cheap.id},
+    ))
+    assert result.ok, f"出售应当被接受，实际：{result.reason}"
+    assert st.revision != rev_before
+
+
+def test_asset_action_rejection_is_not_silent(engine_no_ai):
+    """回归：不被接受的资产操作必须有明确原因，供界面显示给玩家。"""
+    eng = engine_no_ai
+    st = eng.state
+    player, cheap = _make_debt_scenario(eng, 0)
+    eng._start_debt_resolution(player, 10 ** 6, st.players[1].id, "测试欠款")
+    # 债务处理中不允许升级（引擎的债务决策也不提供这个选项）
+    result = eng.submit_command(Command(
+        ctype=CommandType.UPGRADE_PROPERTY, player_id=player.id,
+        payload={"property_id": cheap.id},
+    ))
+    assert not result.ok
+    assert result.reason, "被拒绝时必须有中文原因，界面才能告诉玩家为什么"
+
+
+# ---------------------------------------------------------------- UI 回归
+
+def test_debt_panel_closes_itself_after_debt_is_settled():
+    """回归：债务结清后资产面板不会自动关闭，玩家会继续误抵押自己的地产。
+
+    这条测的是界面层行为，因此真的起一个 dummy 显示的 App 与真实引擎。
+    """
+    import pygame
+
+    from src.app import App
+    from src.persistence.settings import Settings
+    from src.ui.asset_panel import AssetPanel
+
+    settings = Settings()
+    settings.set_fullscreen(False)
+    settings.set_resolution(1600, 900)
+    app = App(settings)
+    app.running = True
+    try:
+        specs = [
+            {"id": "p1", "name": "本人", "character_id": "char_ajin",
+             "color_id": "red", "is_ai": False, "is_host": True},
+            {"id": "p2", "name": "电脑", "character_id": "char_xiaoman",
+             "color_id": "blue", "is_ai": True},
+        ]
+        app.start_local_game(specs)
+        engine = app.local_engine
+        scene = app.scenes.current
+        st = engine.state
+        player = st.player("p1")
+        prop = st.property_at(1)
+        prop.assign(player.id)
+        player.money = 0
+
+        # 制造债务并打开债务面板
+        engine._start_debt_resolution(player, 100, "p2", "测试欠款")
+        scene.update(1 / 60)
+        assert isinstance(scene.modal, AssetPanel), "债务处理应打开资产面板"
+
+        # 让玩家凑够钱：引擎结清债务
+        player.money = 10_000
+        engine._refresh_debt_decision()
+        assert st.debt is None, "钱够了应当自动结清"
+
+        scene.update(1 / 60)
+        assert scene.modal is None, "债务结清后面板必须自动关闭"
+    finally:
+        app._teardown_network()
+        pygame.quit()

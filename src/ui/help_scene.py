@@ -167,10 +167,8 @@ class HelpScene(Scene):
 
     def draw(self, surface: pygame.Surface) -> None:
         theme.vgradient(surface, pygame.Rect(0, 0, 1600, 900), (26, 36, 54), (18, 24, 36))
-        theme.draw_text(surface, "规则 · 图鉴", self.fonts.h1(), theme.color("text"),
-                        (140, 74))
-        theme.draw_text(surface, "第一次玩先看「怎么玩」，其余按需查阅",
-                        self.fonts.small(), theme.color("text_dim"), (142, 112))
+        theme.page_title(surface, self.fonts, "规则 · 图鉴",
+                         "第一次玩先看「怎么玩」，其余按需查阅", divider_after=False)
 
         self._draw_tabs(surface)
 
@@ -277,32 +275,22 @@ class HelpScene(Scene):
         return y - rect.y
 
     def _draw_characters(self, surface: pygame.Surface, rect: pygame.Rect) -> int:
+        """角色页：直接复用角色选择用的同一张能力卡，避免两处各画一套。"""
+        from .character_cards import draw_character_card
+
         y = rect.y
         cols = 2
         col_w = (rect.width - 20) // cols
+        card_h = 128
         for i, char in enumerate(self.characters):
             col, row = i % cols, i // cols
             x = rect.x + col * (col_w + 20)
-            yy = y + row * 92
-            col_rgb = theme.hex_to_rgb(char["theme_color"])
-            pygame.draw.circle(surface, col_rgb, (x + 16, yy + 16), 14)
-            theme.draw_text(surface, char["name_cn"][0], self.fonts.sized(15, True),
-                            (255, 255, 255), (x + 16, yy + 16), anchor="center")
-            theme.draw_text(surface, f"{char['name_cn']} · {char['title']}",
-                            self.fonts.h3(), theme.color("text"), (x + 40, yy))
-            theme.draw_text(surface, char["perk"]["desc"], self.fonts.small(), col_rgb,
-                            (x + 40, yy + 26))
-            theme.draw_text(surface, char["bio"], self.fonts.tiny(),
-                            theme.color("text_mute"), (x + 40, yy + 50))
-            persona = (load_characters().get("ai_personalities") or {}).get(
-                char.get("personality", ""), {})
-            if persona:
-                theme.draw_text(surface, f"AI 风格：{persona.get('name', '')}",
-                                self.fonts.tiny(), theme.color("text_mute"),
-                                (x + 40, yy + 68))
+            yy = y + row * (card_h + 14)
+            draw_character_card(surface, self.fonts,
+                                pygame.Rect(x, yy, col_w, card_h), char["id"])
         rows = (len(self.characters) + cols - 1) // cols
-        return y + rows * 92 - rect.y
-
+        return y + rows * (card_h + 14) - rect.y
+        
     def _draw_maps(self, surface: pygame.Surface, rect: pygame.Rect) -> int:
         y = rect.y
         try:

@@ -20,7 +20,8 @@ from .game.engine import GameEngine
 from .game.setup import create_engine
 from .network.client import ClientError, GameClient
 from .network.discovery import DiscoveryBroadcaster
-from .network.host import GameHost, HostError
+from .network.host import RECONNECT_GRACE_SEC, GameHost, HostError
+from .network.reconnect import STATUS_EXHAUSTED, STATUS_RECOVERED, AutoReconnector
 from .persistence import savegame
 from .persistence.settings import Settings
 from .ui import theme
@@ -29,10 +30,12 @@ from .ui.help_scene import HelpScene
 from .ui.layout import LOGICAL_HEIGHT, LOGICAL_SIZE, LOGICAL_WIDTH, Viewport, translate_event
 from .ui.lobby import LobbyScene
 from .ui.menu import MenuScene
+from .ui.net_diag_scene import NetDiagScene
 from .ui.scene import SceneManager
 from .ui.settings_scene import SettingsScene
 from .ui.setup_scenes import LanSetupScene, LocalSetupScene, SaveBrowserScene
 from .ui.toast import ToastManager
+from .ui.tutorial import TutorialOverlay
 from .utils.logging_setup import get_logger, setup_logging
 
 log = get_logger(__name__)
@@ -78,6 +81,11 @@ class App:
         self.local_specs: list[dict[str, Any]] = []
         self._in_game = False
         self._last_local_specs: list[dict[str, Any]] = []
+        #: 断线重连调度器（仅客户端）
+        self.reconnector: AutoReconnector | None = None
+        self._reconnect_dialog: Any = None
+        self._client_token = ""
+        self._client_address = ("", 0)
 
         # 场景
         self.scenes = SceneManager(self)
@@ -108,6 +116,7 @@ class App:
         self.scenes.register("settings", SettingsScene)
         self.scenes.register("lobby", LobbyScene)
         self.scenes.register("game", GameScene)
+        self.scenes.register("net_diag", NetDiagScene)
         self.scenes.switch_to("menu")
 
     # ================================================================ 设置
@@ -135,6 +144,35 @@ class App:
         scene = self.scenes.current
         if isinstance(scene, GameScene):
             scene.anim.set_speed(speed)
+
+    # ================================================================ 教程
+
+    def start_tutorial(self) -> None:
+        """新手教程：用**真实引擎**跑一局短局，额外叠一层教练面板。
+
+        这里不创建任何「教程专用规则」——玩家看到的就是真正的对局，
+        只是旁边多了一个小面板告诉他现在该做什么。
+        """
+        self._teardown_network()
+        name = self.settings.nickname or "玩家"
+        specs = [
+            {"id": "p1", "name": name, "character_id": self.settings.character_id,
+             "color_id": "red", "is_ai": False, "is_host": True},
+            {"id": "p2", "name": "陪练电脑", "character_id": "char_xiaoman",
+             "color_id": "blue", "is_ai": True},
+        ]
+        engine = create_engine(
+            specs, anim_speed=self.settings.animation_speed,
+            map_file="default_map.json", preset="quick",
+        )
+        self.local_engine = engine
+        self._last_local_specs = [dict(s) for s in specs]
+        engine.bind_controller("p1", LocalController("p1"))
+        engine.start()
+        overlay = TutorialOverlay()
+        self._enter_game(SessionView(self, engine=engine, my_player_id="p1",
+                                     tutorial=overlay))
+        self.toast("新手教程开始 · 跟着右下角的提示走", "success")
 
     # ================================================================ 对局入口
 
@@ -218,15 +256,16 @@ class App:
             client.connect(host_ip, port, name, character)
         except ClientError as exc:
             self.client = None
-            self.push_modal(_message("连接失败", str(exc), "error"))
+            self.push_modal(_message("无法连接主机", str(exc), "error"))
             return
         except Exception as exc:
             self.client = None
             log.exception("连接异常")
-            self.push_modal(_message("连接失败", f"{exc}", "error"))
+            self.push_modal(_message("无法连接主机", f"{exc}", "error"))
             return
 
         self.client = client
+        self._client_address = (host_ip, int(port))
         self.scenes.switch_to("lobby")
         lobby = self.scenes.current
         if isinstance(lobby, LobbyScene):
@@ -305,6 +344,8 @@ class App:
         self.scenes.switch_to("menu")
 
     def _teardown_network(self) -> None:
+        self.reconnector = None
+        self._reconnect_dialog = None
         if self.broadcaster is not None:
             self.broadcaster.stop()
             self.broadcaster = None
@@ -385,12 +426,7 @@ class App:
                 self.toast(error, "warning")
         if self.client is not None:
             self.client.update(dt)
-            if not self.client.connected and self.client.disconnected_reason:
-                reason = self.client.disconnected_reason
-                self.client.disconnected_reason = ""
-                self.toast(reason, "error")
-                self.push_modal(_message("连接已断开", reason, "error",
-                                         on_close=self._after_disconnect))
+            self._update_client_connection()
         # 注意：单机引擎由 GameScene（通过 SessionView）驱动，
         # 这里不能再推进一次，否则游戏会以两倍速前进、阶段计时也会错乱。
         # LAN 模式下 Host/Client 的驱动在上面，GameScene 不会重复推进。
@@ -398,6 +434,98 @@ class App:
         self._check_game_start()
         self.scenes.update(dt)
         self.toasts.update(dt)
+
+    # ================================================================ 断线重连
+
+    def _update_client_connection(self) -> None:
+        """客户端连接状态机：掉线 → 自动重连 → 成功 / 超时。"""
+        client = self.client
+        if client is None:
+            return
+        if client.connected:
+            if self.reconnector is not None:
+                self._close_reconnect_dialog()
+                self.toast("已重新连接，操作已恢复", "success")
+            return
+
+        if not client.disconnected_reason and self.reconnector is None:
+            return
+
+        # 第一次发现掉线：能重连就重连，否则走原来的「提示 + 回主菜单」
+        if self.reconnector is None:
+            if self._can_reconnect(client):
+                self._begin_reconnect(client)
+            else:
+                self._handle_fatal_disconnect(client, client.disconnected_reason)
+            return
+
+        status = self.reconnector.tick(client)
+        self._sync_reconnect_dialog()
+        if status == STATUS_EXHAUSTED:
+            reason = (f"重连超时（已尝试 {self.reconnector.attempts} 次）。"
+                      "房主那边可能已经关闭房间，或网络仍然不通。")
+            self._close_reconnect_dialog()
+            self._handle_fatal_disconnect(client, reason)
+
+    def _can_reconnect(self, client: GameClient) -> bool:
+        """只有「在大厅/对局中掉线」且拿得到 token 时才自动重连。"""
+        if not client.reconnect_token:
+            return False
+        if client.kicked:
+            return False
+        host, port = self._client_address
+        if not host or not port:
+            try:
+                host, port_text = client.host_address.rsplit(":", 1)
+                port = int(port_text)
+            except (ValueError, AttributeError):
+                return False
+        return True
+
+    def _begin_reconnect(self, client: GameClient) -> None:
+        host, port = self._client_address
+        self.reconnector = AutoReconnector(host, port, client.reconnect_token,
+                                           grace_sec=RECONNECT_GRACE_SEC)
+        reason = client.disconnected_reason or "与房主的连接已中断"
+        client.disconnected_reason = ""
+        dialog = _reconnect_dialog(reason, RECONNECT_GRACE_SEC,
+                                   on_give_up=self._abandon_reconnect)
+        self._reconnect_dialog = dialog
+        self.push_modal(dialog)
+        self.toast("连接中断，正在尝试自动重连…", "warning")
+
+    def _sync_reconnect_dialog(self) -> None:
+        dialog = self._reconnect_dialog
+        rec = self.reconnector
+        if dialog is None or rec is None:
+            return
+        dialog.sync(rec.status_text(), rec.attempts, rec.remaining, rec.progress,
+                    rec.hint_text())
+
+    def _close_reconnect_dialog(self) -> None:
+        dialog = self._reconnect_dialog
+        self._reconnect_dialog = None
+        self.reconnector = None
+        scene = self.scenes.current
+        if dialog is not None and scene is not None and getattr(scene, "modal", None) is dialog:
+            scene.modal = None
+
+    def _abandon_reconnect(self) -> None:
+        """玩家主动放弃重连：断开并回主菜单。"""
+        self._close_reconnect_dialog()
+        if self.client is not None:
+            self.client.close(notify=False)
+        self._teardown_network()
+        self.scenes.switch_to("menu")
+        self.toast("已放弃重连", "info")
+
+    def _handle_fatal_disconnect(self, client: GameClient, reason: str) -> None:
+        if client.connected:
+            return
+        client.disconnected_reason = ""
+        self.toast(reason, "error")
+        self.push_modal(_message("连接已断开", reason, "error",
+                                 on_close=self._after_disconnect))
 
     def _after_disconnect(self) -> None:
         if self.client is not None:
@@ -468,3 +596,9 @@ def _message(title: str, message: str, accent: str = "info", on_close=None):
     from .ui.dialogs import MessageDialog
 
     return MessageDialog(title, message, accent=accent, on_close=on_close)
+
+
+def _reconnect_dialog(reason: str, grace: float, on_give_up=None):
+    from .ui.dialogs import ReconnectDialog
+
+    return ReconnectDialog(reason, grace_sec=grace, on_give_up=on_give_up)

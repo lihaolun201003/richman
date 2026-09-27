@@ -63,9 +63,15 @@ def save_game(state: GameState, path: str, meta: dict[str, Any] | None = None) -
         "state": state_to_snapshot(state),
     }
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(doc, f, ensure_ascii=False, indent=2)
+    # 临时文件名带上进程号：同一台电脑双开（房主 + 客户端）时两个实例会写同一个
+    # autosave.json，共用 `.tmp` 会把对方的临时文件覆盖掉，导致「找不到文件」。
+    tmp = f"{path}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(doc, f, ensure_ascii=False, indent=2)
+    except OSError:
+        _remove_quietly(tmp)
+        raise
     # Windows 上目标文件可能正被另一个进程 / 杀毒软件短暂占用，
     # os.replace 会直接抛错；这里做几次短暂重试，仍然失败才向上报。
     last_error: OSError | None = None
@@ -76,11 +82,15 @@ def save_game(state: GameState, path: str, meta: dict[str, Any] | None = None) -
         except OSError as exc:
             last_error = exc
             time.sleep(0.05 * (attempt + 1))
+    _remove_quietly(tmp)
+    raise last_error if last_error else OSError("保存失败")
+
+
+def _remove_quietly(path: str) -> None:
     try:
-        os.remove(tmp)
+        os.remove(path)
     except OSError:
         pass
-    raise last_error if last_error else OSError("保存失败")
 
 
 def read_save_meta(path: str) -> dict[str, Any]:

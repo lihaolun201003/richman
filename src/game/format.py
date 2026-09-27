@@ -28,8 +28,6 @@ def money_delta(value: int | float) -> str:
 def money_short(value: int | float) -> str:
     """紧凑金额，用于空间紧张处：1.5万 / 3200"""
     v = int(round(value))
-    if abs(v) >= 100000:
-        return f"{v / 10000:.1f}万"
     if abs(v) >= 10000:
         return f"{v / 10000:.1f}万"
     return f"{v:,}"

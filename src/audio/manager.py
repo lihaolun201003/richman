@@ -35,6 +35,9 @@ class AudioManager:
         self.bgm_volume = 0.45
         self.sfx_volume = 0.8
         self.muted = False
+        #: 独立开关：关掉音效但保留音乐（或反过来）
+        self.sfx_enabled = True
+        self.bgm_enabled = True
         self.sounds: dict[str, Any] = {}
         self.current_bgm: str = ""
         self._bgm_channel = None
@@ -65,11 +68,17 @@ class AudioManager:
             "hover": ("hover.wav", dict(freq=1200, ms=40, wave="sine", decay=8.0, volume=0.4)),
             "dice": ("dice.wav", dict(freq=240, ms=260, wave="noise", decay=3.0)),
             "move": ("move.wav", dict(freq=660, ms=90, wave="sine", decay=5.0, volume=0.5)),
+            "land": ("land.wav", dict(freq=330, ms=140, wave="triangle", decay=5.0,
+                                      volume=0.55)),
+            "step": ("step.wav", dict(freq=520, ms=55, wave="sine", decay=9.0, volume=0.35)),
             "coin": ("coin.wav", dict(freq=1046, ms=180, wave="sine", decay=4.0)),
             "buy": ("buy.wav", dict(freq=784, ms=260, wave="triangle", decay=3.5)),
+            "pay": ("pay.wav", dict(freq=320, ms=220, wave="triangle", decay=3.6,
+                                    volume=0.7)),
             "upgrade": ("upgrade.wav", dict(freq=988, ms=300, wave="triangle", decay=3.0)),
             "rent": ("rent.wav", dict(freq=392, ms=260, wave="sine", decay=3.5)),
             "chance": ("chance.wav", dict(freq=1318, ms=340, wave="sine", decay=2.6)),
+            "disaster": ("disaster.wav", dict(freq=220, ms=380, wave="saw", decay=2.4)),
             "jail": ("jail.wav", dict(freq=180, ms=420, wave="square", decay=2.2)),
             "bankrupt": ("bankrupt.wav", dict(freq=140, ms=700, wave="saw", decay=1.6)),
             "win": ("win.wav", dict(freq=1046, ms=700, wave="triangle", decay=1.6)),
@@ -151,11 +160,27 @@ class AudioManager:
     def _effective(self, kind: str) -> float:
         if self.muted or not self.enabled:
             return 0.0
-        base = self.bgm_volume if kind == "bgm" else self.sfx_volume
+        if kind == "bgm":
+            if not self.bgm_enabled:
+                return 0.0
+            base = self.bgm_volume
+        else:
+            if not self.sfx_enabled:
+                return 0.0
+            base = self.sfx_volume
         return max(0.0, min(1.0, base * self.master_volume))
 
+    def set_sfx_enabled(self, value: bool) -> None:
+        self.sfx_enabled = bool(value)
+
+    def set_bgm_enabled(self, value: bool) -> None:
+        self.bgm_enabled = bool(value)
+        if not self.bgm_enabled:
+            self.stop_bgm()
+            self.current_bgm = ""
+
     def play_sfx(self, name: str, volume: float = 1.0) -> None:
-        if not self.enabled or self.muted:
+        if not self.enabled or self.muted or not self.sfx_enabled:
             return
         sound = self.sounds.get(name)
         if sound is None:
@@ -171,7 +196,7 @@ class AudioManager:
         self.current_bgm = name
         # 预留：把 assets/audio/bgm_<name>.ogg 放进来即可自动播放
         path = assets_path("audio", f"bgm_{name}.ogg")
-        if not os.path.isfile(path) or not self.enabled:
+        if not os.path.isfile(path) or not self.enabled or not self.bgm_enabled:
             return
         try:
             import pygame
@@ -220,11 +245,13 @@ class AudioManager:
                 pass
 
     def apply_settings(self, settings) -> None:
-        """从 Settings 同步全部音量。"""
+        """从 Settings 同步全部音量与开关。"""
         self.set_master_volume(settings.master_volume)
         self.set_bgm_volume(settings.bgm_volume)
         self.set_sfx_volume(settings.sfx_volume)
         self.set_muted(settings.muted)
+        self.set_sfx_enabled(settings.sfx_enabled)
+        self.set_bgm_enabled(settings.bgm_enabled)
 
     def toggle_mute(self) -> bool:
         self.set_muted(not self.muted)
@@ -236,7 +263,14 @@ class AudioManager:
             return f"音频不可用（{self.error or '未知原因'}）"
         if self.muted:
             return "已静音"
-        return f"主音量 {int(self.master_volume * 100)}%"
+        parts = [f"主音量 {int(self.master_volume * 100)}%"]
+        if not self.sfx_enabled:
+            parts.append("音效关闭")
+        if not self.bgm_enabled:
+            parts.append("音乐关闭")
+        if not os.path.isfile(assets_path("audio", "bgm_main.ogg")):
+            parts.append("暂无背景音乐资源")
+        return " · ".join(parts)
 
 
 #: 全局单例，UI 直接使用

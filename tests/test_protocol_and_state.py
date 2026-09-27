@@ -371,3 +371,82 @@ def test_ai_targets_are_valid(engine):
             if tid is not None:
                 assert st.player(str(tid)) is not None
                 assert str(tid) != pd.player_id
+
+
+# ==================================================================== 自动发现
+#
+# UDP 广播本身没法在单机上可靠复现，但「发现服务」里真正容易写错的两件事可以：
+#   1. 广播包的结构（magic / 协议版本 / 字段）与监听端解析是否一致；
+#   2. 监听线程收到包之后，能不能正确进入房间列表。
+# 这两条覆盖了 v0.2 里「自动发现完全没测过」的空白。
+
+def test_discovery_packet_matches_listener_parser():
+    import json
+
+    from src.network.discovery import DISCOVERY_MAGIC, RoomInfo
+    from src.network import protocol as proto
+
+    payload = {
+        "room_name": "李昊伦 的房间",
+        "players": 2,
+        "max_players": 6,
+        "phase": "lobby",
+        "map_name": "城市之光",
+        "preset": "standard",
+        "port": 28080,
+        "magic": DISCOVERY_MAGIC,
+        "protocol_version": proto.PROTOCOL_VERSION,
+        "ts": 0.0,
+    }
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    info = RoomInfo.from_packet(data, "192.168.1.5")
+    assert info is not None
+    assert info.room_name == "李昊伦 的房间"
+    assert info.ip == "192.168.1.5"
+    assert info.port == 28080
+    assert info.joinable, "大厅阶段且未满的房间应当可加入"
+    # 不是本协议格式的包必须被忽略（避免误报别人的广播）
+    assert RoomInfo.from_packet(b'{"magic": "OTHER"}', "1.2.3.4") is None
+    assert RoomInfo.from_packet(b"not json", "1.2.3.4") is None
+
+
+def test_discovery_listener_accepts_room_packet():
+    """真的起一个监听线程，往它发一个房间包，验证房间会出现在列表里。"""
+    import json
+    import socket
+    import time
+
+    from src.network import protocol as proto
+    from src.network.discovery import DISCOVERY_MAGIC, DiscoveryListener
+
+    # 找一个空闲端口
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+
+    listener = DiscoveryListener(port)
+    assert listener.start(), listener.error
+    try:
+        sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        payload = {
+            "room_name": "测试房间", "players": 1, "max_players": 6,
+            "phase": "lobby", "map_name": "城市之光", "port": 28080,
+            "magic": DISCOVERY_MAGIC, "protocol_version": proto.PROTOCOL_VERSION,
+        }
+        sender.sendto(json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                      ("127.0.0.1", port))
+        sender.close()
+
+        deadline = time.time() + 5.0
+        rooms = []
+        while time.time() < deadline:
+            rooms = listener.snapshot()
+            if rooms:
+                break
+            time.sleep(0.1)
+        assert rooms, "监听端应当收到并登记这个房间"
+        assert rooms[0].room_name == "测试房间"
+        assert rooms[0].port == 28080
+    finally:
+        listener.stop()

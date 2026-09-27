@@ -84,11 +84,29 @@ class GameClient:
         })
 
     def reconnect(self, host: str, port: int, token: str, timeout: float = 5.0) -> None:
+        """用重连 token 恢复座位。
+
+        可以对同一个 GameClient 对象反复调用：每次都会关掉旧连接、
+        重置内部标志，然后建立一条新连接并发送 RECONNECT。
+        """
+        if not token:
+            raise ClientError("缺少重连凭证，无法恢复连接")
+        # 允许重复尝试
+        self._closed = False
+        if self.conn is not None:
+            try:
+                self.conn.close("reconnect")
+            except Exception:
+                pass
+            self.conn = None
+        self.connected = False
+        self.disconnected_reason = ""
         try:
             conn = connect_to(host, port, timeout=timeout)
         except OSError as exc:
             raise ClientError(f"重连失败：{exc.strerror or exc}") from exc
         self.conn = conn
+        self.host_address = f"{host}:{port}"
         conn.start()
         conn.send_message(proto.MessageType.RECONNECT, {"reconnect_token": token})
 

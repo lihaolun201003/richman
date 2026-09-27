@@ -1,11 +1,13 @@
-"""对局场景：棋盘、HUD、决策交互、动画、结算。
+"""对局场景：棋盘、HUD、决策交互、动画、演出。
 
 设计要点：
 - 通过 SessionView 抽象统一「单机引擎」与「局域网客户端」，
   场景本身不关心状态是本地算出来的还是网络传来的；
 - UI 只发送 Command，绝不直接修改状态；
 - 弹窗出现时吞掉所有输入，杜绝穿透点击；
-- 动画只影响显示，不参与规则计算。
+- **演出不参与规则**：资金浮字读 EconomyLedger，事件卡读 event_log，
+  引擎照常按自己的阶段推进，演出只决定「画什么、画多久」；
+- 所有演出都能点击跳过，不会把玩家卡住。
 """
 from __future__ import annotations
 
@@ -17,17 +19,17 @@ import pygame
 
 from ..audio.manager import audio
 from ..game import economy
-from ..game.cards import CardRegistry, can_use, valid_targets
+from ..game.cards import TIMING_LABEL, CardRegistry, can_use, valid_targets
 from ..game.commands import Command, CommandType, DecisionKind, PendingDecision
 from ..game.events import EventType
 from ..game.format import money
+from ..game.ledger import Reason
 from ..game.phases import GamePhase
-from ..game.player import STATUS_LABELS
 from ..game.state import GameState
 from ..game.tile import TileType
 from ..game import victory
 from ..persistence import savegame
-from . import theme
+from . import icons, theme
 from .animations import (
     AnimationManager,
     CardFlipAnimation,
@@ -37,7 +39,7 @@ from .animations import (
     draw_die,
 )
 from .asset_panel import AssetPanel
-from .board_view import BoardView
+from .board_view import BoardView, district_progress, monopoly_districts
 from .dialogs import (
     CardTargetDialog,
     ShopDialog,
@@ -49,6 +51,13 @@ from .dialogs import (
     PauseMenu,
 )
 from .player_panel import PlayerPanel, _color_of
+from .presentation import (
+    ActionBanner,
+    EventCard,
+    Presenter,
+    accent_for,
+    describe_ledger_entry,
+)
 from .property_panel import PropertyInfoPanel, property_tooltip
 from .scene import Scene
 from .toast import ToastManager
@@ -57,22 +66,22 @@ from .widgets import Button, IconButton, Label, Panel, ScrollList, draw_tooltip
 SCREEN_W = 1600
 SCREEN_H = 900
 
-#: 各区域的布局（棋盘 11×9 网格，cell 由 BoardView 自适应居中）
+#: 各区域的布局（棋盘网格由 BoardView 按地图数据自适应居中）
 BOARD_RECT = pygame.Rect(24, 88, 980, 782)
 SIDE_RECT = pygame.Rect(1024, 88, 552, 782)
 PANEL_RECT = pygame.Rect(20, 12, 1348, 68)
 ROUND_RECT = pygame.Rect(1382, 12, 198, 68)
 
 #: 侧栏三段的高度
-ACTION_H = 252
-INFO_H = 200
+ACTION_H = 286
+INFO_H = 232
 LOG_GAP = 12
 
 #: 侧栏内控件的固定位置（绘制与命中判定共用，保证不会错位）
-ROLL_BUTTON_RECT = pygame.Rect(SIDE_RECT.x + 16, SIDE_RECT.y + 82, 200, 56)
-DICE_PREVIEW_RECT = pygame.Rect(SIDE_RECT.x + 232, SIDE_RECT.y + 82, 152, 56)
-CARD_W, CARD_H, CARD_GAP = 72, 34, 6
-CARD_ORIGIN = (SIDE_RECT.x + 14, SIDE_RECT.y + 196)
+ROLL_BUTTON_RECT = pygame.Rect(SIDE_RECT.x + 16, SIDE_RECT.y + 84, 200, 58)
+DICE_PREVIEW_RECT = pygame.Rect(SIDE_RECT.x + 228, SIDE_RECT.y + 84, 156, 58)
+CARD_W, CARD_H, CARD_GAP = 84, 54, 6
+CARD_ORIGIN = (SIDE_RECT.x + 14, SIDE_RECT.y + 214)
 
 
 def card_button_rect(index: int) -> pygame.Rect:
@@ -111,17 +120,33 @@ class LocalInteraction:
         WAITING: "等待其他玩家",
     }
 
+    #: 每种状态给玩家的下一步指引（侧栏提示行用它）
+    HINTS = {
+        ROLL_DICE: "点右侧「掷骰子」或按空格开始行动",
+        PROPERTY_DECISION: "在弹出的窗口里选择买下或放弃",
+        JAIL_DECISION: "选择付保释金或掷骰碰运气",
+        CARD_TARGET: "在棋盘或弹窗中选择道具的目标",
+        DEBT: "在资产面板里抵押或出售地产来凑钱",
+        SHOP: "点击卡片购买，或点「不买了」离开",
+        CONFIRM: "查看事件结果后继续",
+        WAITING: "等待其他玩家行动，可以先看看棋盘",
+        GAME_OVER: "对局已结束",
+        NONE: "",
+    }
+
 
 class SessionView:
     """把「单机引擎」与「局域网客户端」统一成同一个只读视图。"""
 
     def __init__(self, app: Any, engine: Any = None, client: Any = None,
-                 my_player_id: str = "", host: Any = None) -> None:
+                 my_player_id: str = "", host: Any = None,
+                 tutorial: Any = None) -> None:
         self.app = app
         self.engine = engine
         self.client = client
         self.host = host
         self.my_player_id = my_player_id
+        self.tutorial = tutorial
         self.local_players: set[str] = set()
         if engine is not None:
             # 单机：所有非 AI 座位都由本机真人操作（可同一台电脑轮流玩）
@@ -200,6 +225,33 @@ class SessionView:
         return self.my_player_id
 
 
+class CardTile:
+    """侧栏里的一张手牌：图标 + 名称 + 时机标记 + 不可用原因。"""
+
+    __slots__ = ("rect", "card_id", "name", "icon", "enabled", "reason", "timing",
+                 "description", "hovered")
+
+    def __init__(self, rect: pygame.Rect, card_id: str, name: str, icon: str,
+                 timing: str, description: str, enabled: bool, reason: str) -> None:
+        self.rect = rect
+        self.card_id = card_id
+        self.name = name
+        self.icon = icon
+        self.timing = timing
+        self.description = description
+        self.enabled = enabled
+        self.reason = reason
+        self.hovered = False
+
+    def tooltip(self, index: int) -> str:
+        lines = [f"{self.name}", self.description, self.timing]
+        if self.enabled:
+            lines.append(f"点击或按 {index + 1} 使用")
+        else:
+            lines.append(f"暂不可用：{self.reason}")
+        return "\n".join(x for x in lines if x)
+
+
 class GameScene(Scene):
     """对局主场景。"""
 
@@ -221,20 +273,24 @@ class GameScene(Scene):
                         self.log_panel_rect.width - 16, self.log_panel_rect.height - 56),
             line_height=21)
         self.anim = AnimationManager()
+        self.presenter = Presenter()
         self.toasts = ToastManager()
         self.modal: Modal | None = None
         self.buttons: list[Button] = []
-        self.card_buttons: list[Button] = []
+        self.card_tiles: list[CardTile] = []
         self.roll_button: Button | None = None
         self._card_tooltip: str = ""
         self.tile_index_clicked: int | None = None
         self.hover_tile: int | None = None
         self.hover_player: int | None = None
         self._last_seen_seq = 0
+        self._last_ledger_seq = 0
         self._last_phase = None
         self._last_current = None
         self._move_anim: PieceMoveAnimation | None = None
         self._move_player: str | None = None
+        self._move_trail: list[tuple[int, float]] = []
+        self._move_last_tile: int | None = None
         self._dice_anim: DiceRollAnimation | None = None
         self._card_defs: CardRegistry | None = None
         self._char_names: dict[str, str] = {}
@@ -243,13 +299,16 @@ class GameScene(Scene):
         self._autosave_time = 0.0
         self._game_over_shown = False
         self._pending_card_id: str | None = None
+        self._targets: dict[Any, str] = {}
         self._pending_debt_reopen = False
-        self._card_buttons_key: tuple = ()
-        self._card_buttons_roll = False
+        self._card_tiles_key: tuple = ()
         self._last_state_error = ""
         self._log_cache: list[Any] = []
         self._log_seq = -1
-        self._floated_events: set[str] = set()
+        self._card_reasons: dict[str, str] = {}
+        self._last_hint = ""
+        self._money_anim: dict[str, float] = {}
+        self._tutorial = None
 
     # ================================================================ 场景
 
@@ -266,23 +325,33 @@ class GameScene(Scene):
         self._card_defs = load_card_registry()
         self._char_names = {c["id"]: c["name_cn"] for c in load_characters()["characters"]}
         self.player_panel.local_player_id = session.my_player_id if not session.engine else ""
-        self._last_seen_seq = 0
+        self._last_seen_seq = max(0, st.event_seq - 40)
+        # 已经存在的流水不再补演（读档 / 刚连上时不应该刷一屏浮字）
+        self._last_ledger_seq = (st.ledger.entries[-1].seq if st.ledger.entries else 0)
         self._game_over_shown = False
         self._log_seq = -1
-        self._floated_events.clear()
         self.anim.clear()
+        self.presenter.clear()
         self.modal = None
         self._paused = False
+        self._pending_card_id = None
+        self._targets = {}
+        self._tutorial = session.tutorial
         self._build_buttons()
+        if self._tutorial is not None:
+            self._tutorial.bind(self)
 
     def _build_buttons(self) -> None:
         self.buttons = [
-            Button(pygame.Rect(1330, 22, 76, 44), "资产", on_click=self.open_asset_panel,
-                   style="secondary", font_size=16, tooltip="管理地产：升级 / 出售 / 抵押（I）"),
-            Button(pygame.Rect(1414, 22, 76, 44), "图鉴", on_click=self._open_help,
-                   style="secondary", font_size=16, tooltip="规则与道具图鉴（H）"),
-            Button(pygame.Rect(1494, 22, 72, 44), "菜单", on_click=self._open_pause,
-                   style="secondary", font_size=16, tooltip="暂停 / 菜单（ESC）"),
+            Button(pygame.Rect(1322, 22, 84, 44), "资产", on_click=self.open_asset_panel,
+                   style="secondary", font_size=16, icon="property",
+                   tooltip="管理地产：升级 / 出售 / 抵押 / 赎回（I）"),
+            Button(pygame.Rect(1412, 22, 84, 44), "图鉴", on_click=self._open_help,
+                   style="secondary", font_size=16, icon="book",
+                   tooltip="规则与道具图鉴（H）"),
+            Button(pygame.Rect(1502, 22, 80, 44), "菜单", on_click=self._open_pause,
+                   style="secondary", font_size=16, icon="gear",
+                   tooltip="暂停 / 菜单（ESC）"),
         ]
         self.roll_button = Button(
             ROLL_BUTTON_RECT, "掷骰子", on_click=self._try_roll, style="accent",
@@ -303,27 +372,40 @@ class GameScene(Scene):
         if st is None:
             return
 
-        # 消息提示
         for msg in self.session.drain_messages():
             self.toasts.push(msg, "info")
 
-        self._sync_animations(st, dt)
         self.anim.set_speed(self.app.settings.animation_speed)
+        self._sync_animations(st, dt)
         self.anim.update(dt)
+        self.presenter.update(dt)
         self.toasts.update(dt)
         super().update(dt)
 
+        if self._tutorial is not None:
+            self._tutorial.update(st, self)
+
         if self.modal is not None:
             self.modal.update(dt)
-            if self.modal.done:
+            # 债务一旦结清，债务面板要自己关掉。
+            # 否则玩家会在「已经还完钱」的面板里继续抵押，白白毁掉自己的资产。
+            if st.debt is None and getattr(self.modal, "debt", None) is not None:
+                self._pending_debt_reopen = False
+                self.modal.close()
+                self.modal = None
+                self.toasts.push("债务已结清", "success")
+                audio.play_sfx("coin")
+            if self.modal is not None and self.modal.done:
                 self.modal = None
                 if getattr(self, '_pending_debt_reopen', False):
                     self._pending_debt_reopen = False
                     self._maybe_open_decision(st)
+            self._update_money_animation(dt)
             return
 
         self._refresh_action_buttons()
         self._handle_new_events(st)
+        self._handle_ledger(st)
         self._maybe_open_decision(st)
         self._maybe_show_game_over(st)
         self._maybe_autosave(st)
@@ -333,83 +415,149 @@ class GameScene(Scene):
 
         if self._paused:
             return
-        # 键盘快捷键
         self._update_log(st)
+
+    def _update_money_animation(self, dt: float) -> None:
+        for pid in list(self._money_anim):
+            value = self._money_anim[pid]
+            step = abs(value) * min(1.0, dt * 6.0) + 1
+            if value > 0:
+                self._money_anim[pid] = max(0.0, value - step)
+            else:
+                self._money_anim[pid] = min(0.0, value + step)
+            if abs(self._money_anim[pid]) < 1:
+                del self._money_anim[pid]
+
+    # ---------------------------------------------------------------- 日志
+
+    #: 事件类型 → (颜色, 图标)
+    LOG_STYLE = {
+        EventType.PROPERTY_BOUGHT: ("success", "property"),
+        EventType.RENT_PAID: ("warning", "coin"),
+        EventType.PASSED_START: ("accent", "start"),
+        EventType.CHANCE_DRAWN: ("info", "star"),
+        EventType.CHANCE_APPLIED: ("text_dim", ""),
+        EventType.BANKRUPT: ("danger", "alert"),
+        EventType.GAME_OVER: ("accent", "trophy"),
+        EventType.CARD_USED: ("primary", "card"),
+        EventType.CARD_GAINED: ("text_dim", "card"),
+        EventType.TURN_START: ("text", ""),
+        EventType.JAIL_ENTERED: ("warning", "jail"),
+        EventType.JAIL_RELEASED: ("success", "key"),
+        EventType.JAIL_PAID: ("warning", "key"),
+        EventType.DEBT_STARTED: ("danger", "alert"),
+        EventType.BONUS_POOL_GAINED: ("success", "trophy"),
+        EventType.BONUS_POOL_PAID: ("warning", "trophy"),
+        EventType.TAX_PAID: ("danger", "tax"),
+        EventType.PROPERTY_UPGRADED: ("accent", "hammer"),
+        EventType.PROPERTY_SOLD: ("warning", "cash"),
+        EventType.PROPERTY_MORTGAGED: ("warning", "tag"),
+        EventType.PROPERTY_UNMORTGAGED: ("success", "key"),
+        EventType.ASSET_LIQUIDATED: ("warning", "cash"),
+        EventType.PLAYER_DISCONNECTED: ("danger", "network"),
+        EventType.PLAYER_RECONNECTED: ("success", "network"),
+        EventType.PLAYER_BOT_TAKEOVER: ("warning", "person"),
+    }
+
+    #: 关闭「详细日志」时隐藏的低信息量事件
+    LOG_MINOR = frozenset({
+        EventType.CHANCE_APPLIED, EventType.PHASE_CHANGED, EventType.TURN_END,
+        EventType.PLAYER_MOVED,
+    })
 
     def _update_log(self, st: GameState) -> None:
         if st.event_seq == self._log_seq:
             return
         self._log_seq = st.event_seq
-        colors = {
-            EventType.PROPERTY_BOUGHT: "success",
-            EventType.RENT_PAID: "warning",
-            EventType.PASSED_START: "accent",
-            EventType.CHANCE_DRAWN: "info",
-            EventType.BANKRUPT: "danger",
-            EventType.GAME_OVER: "accent",
-            EventType.CARD_USED: "info",
-            EventType.TURN_START: "text",
-            EventType.JAIL_ENTERED: "warning",
-            EventType.DEBT_STARTED: "danger",
-            EventType.BONUS_POOL_GAINED: "success",
-        }
+        detailed = self.app.settings.detailed_log
         items = []
-        for ev in st.event_log[-120:]:
-            color = colors.get(ev.type, "text_dim")
-            prefix = ""
+        for ev in st.event_log[-160:]:
+            if not detailed and ev.type in self.LOG_MINOR:
+                continue
+            color, icon_name = self.LOG_STYLE.get(ev.type, ("text_dim", ""))
+            prefix = "▍" if ev.type == EventType.TURN_START else ""
             if ev.type == EventType.TURN_START:
-                prefix = "▍"
-            items.append((f"{prefix}{ev.message}", color))
+                color = "accent"
+            items.append((f"{prefix}{ev.message}", color, icon_name))
         self.log_list.set_items(items)
         self.log_list.scroll = self.log_list.max_scroll
 
+    # ---------------------------------------------------------------- 演出同步
+
     def _sync_animations(self, st: GameState, dt: float) -> None:
         """根据阶段变化启动/结束表现动画。"""
-        # 骰子
         if st.phase is GamePhase.ROLLING and st.dice is not None:
             if self._dice_anim is None and self._last_phase is not GamePhase.ROLLING:
                 center = self.board_view.inner_rect.center if self.board_view else (600, 400)
-                # duration 用「游戏时间」：加速由 AnimationManager 统一处理，
-                # 这里再除一次动画速度会导致骰子动画一闪而过。
                 self._dice_anim = DiceRollAnimation(
-                    center, 78, (st.dice.die1, st.dice.die2),
-                    duration=max(0.5, st.phase_duration),
+                    (center[0], center[1] - 10), 78, (st.dice.die1, st.dice.die2),
+                    duration=max(0.55, st.phase_duration * 0.82),
                     show_total=not st.dice.from_jail,
                 )
+                self.dice_settle_at = time.time() + max(0.55, st.phase_duration * 0.82)
                 self.anim.add(self._dice_anim)
                 audio.play_sfx("dice")
         if st.phase is not GamePhase.ROLLING:
             self._dice_anim = None
 
-        # 棋子移动
-        if st.phase is GamePhase.MOVING and st.move_path and self.board_view is not None:
+        if st.phase is GamePhase.MOVING and self.board_view is not None:
             if self._move_anim is None or self._move_player != st.move_player_id:
-                per_tile = st.phase_duration / max(1, len(st.move_path))
+                length = max(1, len(st.move_path))
+                # 每格时间由引擎阶段时长决定；上面留 12% 作为「落定前的停顿」
+                per_tile = max(0.09, st.phase_duration * 0.88 / length)
                 self._move_anim = PieceMoveAnimation(
                     list(st.move_path), self.board_view.tile_centers(), per_tile)
                 if self._move_player != st.move_player_id:
                     self._move_anim.tween.elapsed = 0.0
                     self._move_anim.tween.done = False
                     self.anim.add(self._move_anim)
+                    self._move_trail.clear()
+                    self._move_last_tile = None
                 self._move_player = st.move_player_id
                 audio.play_sfx("move")
         else:
             if self._move_anim is not None and st.phase is not GamePhase.MOVING:
                 self._move_anim = None
                 self._move_player = None
+                self._move_last_tile = None
+
+        # 逐格反馈：每经过一格点亮一次
+        if st.phase is GamePhase.MOVING and self._move_anim is not None:
+            idx = self._move_anim.current_index()
+            if idx is not None and idx != self._move_last_tile:
+                self._move_last_tile = idx
+                self._move_trail.append((idx, 0.0))
+        for i in range(len(self._move_trail) - 1, -1, -1):
+            tile_index, t = self._move_trail[i]
+            t += dt * 2.6
+            if t >= 1.0:
+                del self._move_trail[i]
+            else:
+                self._move_trail[i] = (tile_index, t)
 
         if st.phase is not self._last_phase:
             if st.phase is GamePhase.RESOLVE_TILE:
                 target = st.current_player.position if st.current_player else None
                 if self.board_view is not None:
                     self.board_view.highlight_index = target
+                if target is not None:
+                    self.presenter.push_banner(ActionBanner(
+                        self._tile_banner_text(st, target), color_name="info",
+                        icon="info", duration=1.1))
+                audio.play_sfx("land")
             if st.phase is GamePhase.WAIT_ROLL and st.current_player_id != self._last_current:
                 audio.play_sfx("turn")
             self._last_phase = st.phase
             self._last_current = st.current_player_id
 
+    def _tile_banner_text(self, st: GameState, tile_index: int) -> str:
+        tile = st.board.tile(tile_index)
+        return f"抵达「{tile.name}」"
+
+    # ---------------------------------------------------------------- 事件演出
+
     def _handle_new_events(self, st: GameState) -> None:
-        """处理新增事件：浮字、机遇弹窗。"""
+        """处理新增事件：事件卡、横幅、音效。"""
         new_events = [e for e in st.event_log if e.seq > self._last_seen_seq]
         if not new_events:
             return
@@ -417,49 +565,132 @@ class GameScene(Scene):
         for ev in new_events:
             self._present_event(st, ev)
 
+    def _handle_ledger(self, st: GameState) -> None:
+        """资金反馈的唯一来源：EconomyLedger。
+
+        v0.2 只有 4 种事件会飘字，玩家经常「钱少了但不知道为什么」。
+        现在任何一笔资金变化都会浮字 + 进日志，因为它来自账本本身。
+        """
+        entries = st.ledger.entries
+        if not entries:
+            return
+        new = [e for e in entries if e.seq > self._last_ledger_seq]
+        if not new:
+            return
+        if len(new) > 12:      # 追平积压（例如刚读档 / 刚连上）时不刷屏
+            new = new[-12:]
+        self._last_ledger_seq = entries[-1].seq
+        players = {p.id: p for p in st.players}
+        for entry in new:
+            # 开局发钱不是「变化」，不飘字，否则每个玩家一进局就顶着双倍数字
+            if entry.category == Reason.INITIAL_MONEY:
+                continue
+            text, sub, color_name, icon_name = describe_ledger_entry(entry, players)
+            player = players.get(entry.player_id)
+            if player is None or self.board_view is None:
+                continue
+            # 破产玩家的结算残值不再飘字
+            if player.bankrupt and entry.amount <= 0:
+                continue
+            pos = self.board_view.tile_center(player.position)
+            self.presenter.pop_money(text, (pos[0], pos[1] - 24), sub=sub,
+                                     color_name=color_name, icon=icon_name,
+                                     size=26 if entry.amount > 0 else 24)
+            self._money_anim[player.id] = self._money_anim.get(player.id, 0.0) + entry.amount
+
     def _present_event(self, st: GameState, ev) -> None:
         data = ev.data or {}
-        # 浮字
-        if data.get("float") and self.board_view is not None:
-            target_id = data.get("float_target") or ev.player_id
-            player = st.player(target_id)
-            if player is not None and ev.event_id not in self._floated_events:
-                self._floated_events.add(ev.event_id)
-                pos = self.board_view.tile_center(player.position)
-                amount = int(data.get("amount", 0))
-                if ev.type == EventType.PASSED_START or ev.type == EventType.BONUS_POOL_GAINED:
-                    self.anim.float_text(f"+{money(amount)}", (pos[0], pos[1] - 26),
-                                         "success", 26)
-                    audio.play_sfx("coin")
-                elif ev.type in (EventType.RENT_PAID, EventType.TAX_PAID):
-                    self.anim.float_text(f"-{money(amount)}", (pos[0], pos[1] - 26),
-                                         "danger", 26)
-                    audio.play_sfx("rent")
-                elif ev.type == EventType.PROPERTY_BOUGHT:
-                    self.anim.float_text(f"-{money(amount)}", (pos[0], pos[1] - 26),
-                                         "warning", 24)
-                    audio.play_sfx("buy")
-                elif ev.type == EventType.PROPERTY_UPGRADED:
-                    self.anim.float_text("升级！", (pos[0], pos[1] - 26), "accent", 22)
-                    audio.play_sfx("upgrade")
-
-        # 机遇卡弹窗
         if ev.type == EventType.CHANCE_DRAWN:
-            detail = ""
-            for later in st.event_log:
-                if later.seq > ev.seq and later.type == EventType.CHANCE_APPLIED:
-                    detail = later.data.get("detail", "")
-                    break
-            card_rect = pygame.Rect(0, 0, 420, 300)
-            self.anim.add(CardFlipAnimation(
-                card_rect, ev.data.get("name", "机遇"),
-                ev.data.get("description", ""), accent="chance"))
-            audio.play_sfx("chance")
-
-        if ev.type == EventType.BANKRUPT:
+            self._present_chance_card(st, ev)
+        elif ev.type == EventType.CARD_USED:
+            self._present_card_used(st, ev)
+        elif ev.type == EventType.BANKRUPT:
+            player = st.player(ev.player_id)
+            self.presenter.push_banner(ActionBanner(
+                f"{player.name if player else '玩家'} 破产退出",
+                sub="资产已移交债权人", color_name="danger", icon="alert",
+                duration=2.6))
             audio.play_sfx("bankrupt")
-        if ev.type == EventType.JAIL_ENTERED:
+        elif ev.type == EventType.JAIL_ENTERED:
             audio.play_sfx("jail")
+        elif ev.type == EventType.PLAYER_DISCONNECTED:
+            self.presenter.push_banner(ActionBanner(
+                ev.message, sub="30 秒内可重新连接，超时由 AI 接管",
+                color_name="warning", icon="network", duration=3.0))
+        elif ev.type == EventType.PLAYER_RECONNECTED:
+            self.presenter.push_banner(ActionBanner(
+                ev.message, color_name="success", icon="network", duration=2.4))
+        elif ev.type == EventType.PLAYER_BOT_TAKEOVER:
+            self.presenter.push_banner(ActionBanner(
+                ev.message, sub="之后可以重新连接接回操作", color_name="warning",
+                icon="person", duration=2.4))
+        elif ev.type == EventType.GAME_OVER:
+            audio.play_sfx("win")
+
+    def _present_chance_card(self, st: GameState, ev) -> None:
+        data = ev.data or {}
+        detail = ""
+        for later in st.event_log:
+            if later.seq > ev.seq and later.type == EventType.CHANCE_APPLIED:
+                detail = later.data.get("detail", "")
+                break
+        actor = st.player(ev.player_id)
+        polarity = data.get("polarity", "neutral")
+        speed = max(0.4, float(self.app.settings.animation_speed))
+        self.presenter.push_card(EventCard(
+            polarity,
+            data.get("name", "机遇"),
+            data.get("description", ""),
+            detail,
+            actor=actor.name if actor else "",
+            duration=2.1 / min(2.0, speed) + 0.7,
+        ))
+        self.anim.add(CardFlipAnimation(
+            pygame.Rect(0, 0, 420, 300), data.get("name", "机遇"),
+            data.get("description", ""), accent=accent_for(polarity)))
+        audio.play_sfx("chance" if polarity != "disaster" else "error")
+
+    def _present_card_used(self, st: GameState, ev) -> None:
+        """AI（或其他人）使用道具时给一句演出，避免「被偷袭却不知道」。"""
+        data = ev.data or {}
+        actor = st.player(ev.player_id)
+        card = self._card_defs.get(data.get("card", "")) if self._card_defs else None
+        if actor is None:
+            return
+        mine = self.session.is_mine(actor.id) if self.session else False
+        if mine:
+            return
+        name = card.name if card else "道具"
+        target_text = self._describe_ai_target(st, data, ev)
+        self.presenter.push_banner(ActionBanner(
+            f"{actor.name} 使用【{name}】", sub=target_text,
+            color_name="warning", icon="card", duration=2.2))
+
+    def _describe_ai_target(self, st: GameState, data: dict, ev) -> str:
+        """从事件里恢复出「谁对谁做了什么」，只读不改。"""
+        target = data.get("target")
+        if target is None:
+            for later in st.event_log:
+                if later.seq > ev.seq and later.player_id == ev.player_id:
+                    if target is None:
+                        target = later.data.get("target")
+        if target is None:
+            return ""
+        if isinstance(target, str) and target.startswith("p") and len(target) == 3:
+            prop = st.properties.get(target)
+            if prop is not None:
+                return f"目标：{prop.name}"
+        if isinstance(target, str):
+            who = st.player(target)
+            if who is not None:
+                return f"目标：{who.name}"
+        if isinstance(target, int):
+            if 0 <= target < st.board.tile_count:
+                return f"目标：{st.board.tile(target).name}"
+            return f"目标：{target} 点"
+        return ""
+
+    # ---------------------------------------------------------------- hover
 
     def _update_hover(self, st: GameState, mouse: tuple[int, int]) -> None:
         if self.board_view is None:
@@ -467,15 +698,23 @@ class GameScene(Scene):
         idx = self.board_view.hit_test(mouse)
         self.board_view.hover_index = idx
         self.hover_tile = idx
-        self.prop_panel.set_tile(st, idx)
+        if idx is not None:
+            self.prop_panel.set_tile(st, idx)
+        elif st.current_player is not None:
+            self.prop_panel.set_tile(st, st.current_player.position)
         self.hover_player = self.player_panel.hit_test(mouse)
+        # 手牌悬停
+        self._card_tooltip = ""
+        for i, tile in enumerate(self.card_tiles):
+            tile.hovered = tile.rect.collidepoint(mouse)
+            if tile.hovered:
+                self._card_tooltip = tile.tooltip(i)
 
     #: 自动存档的最小间隔（秒）与最小回合间隔 —— 每回合存一次既慢又没意义
     AUTOSAVE_INTERVAL_SEC = 20.0
     AUTOSAVE_TURNS = 4
 
     def _maybe_autosave(self, st: GameState) -> None:
-        """单机模式：定期自动存档（节流，避免每回合都写盘）。"""
         if self.session is None or self.session.engine is None:
             return
         if st.game_over:
@@ -509,7 +748,6 @@ class GameScene(Scene):
                 self._open_shop_dialog(decision)
             return
         if self._pending_card_id is not None:
-            # 正在选道具目标，先让道具流程走完
             return
 
         accent = {
@@ -523,17 +761,37 @@ class GameScene(Scene):
         }.get(kind, "accent")
 
         extra: list[str] = []
-        if kind == DecisionKind.JAIL:
-            player = st.player(decision.player_id)
-            if player is not None:
-                extra.append(f"你的现金：{player.money:,}")
-        if kind == DecisionKind.BUY_PROPERTY:
-            player = st.player(decision.player_id)
-            if player is not None:
-                extra.append(f"你的现金：{player.money:,}")
+        player = st.player(decision.player_id)
+        if kind == DecisionKind.JAIL and player is not None:
+            extra.append(f"你的现金：{money(player.money)}")
+        if kind == DecisionKind.BUY_PROPERTY and player is not None:
+            prop = self._decision_property(st, decision)
+            if prop is not None:
+                district_owned, district_total = self._district_count(
+                    st, player.id, prop.district)
+                extra.append(f"你的现金：{money(player.money)}　·　"
+                             f"本区进度：{district_owned}/{district_total}")
+            else:
+                extra.append(f"你的现金：{money(player.money)}")
 
         self.modal = DecisionDialog(decision, self._on_decision_choice,
                                     accent=accent, extra_lines=extra)
+
+    def _decision_property(self, st: GameState, decision: PendingDecision):
+        pid = decision.context.get("property_id") or decision.context.get("property")
+        if pid is None:
+            return None
+        return st.properties.get(str(pid))
+
+    def _district_count(self, st: GameState, player_id: str,
+                        district: str | None) -> tuple[int, int]:
+        if not district:
+            return 0, 0
+        ids = (st.district_props or {}).get(district, [])
+        owned = sum(1 for pid in ids
+                    if (st.properties.get(pid) is not None
+                        and st.properties[pid].owner_id == player_id))
+        return owned, len(ids)
 
     def _on_decision_choice(self, option_id: str) -> None:
         decision = self.session.decision if self.session else None
@@ -554,11 +812,13 @@ class GameScene(Scene):
         ranking = victory.ranking(st)
         stats = victory.final_stats(st)
         can_restart = self.session is not None and self.session.engine is not None
+        is_client = self.session is not None and self.session.client is not None
         self.modal = GameOverDialog(
             ranking, st.round_number, stats,
             on_again=self._restart,
             on_exit=self._back_to_lobby,
             can_restart=can_restart,
+            client_mode=is_client,
         )
         audio.play_sfx("win")
 
@@ -574,6 +834,8 @@ class GameScene(Scene):
         if st.game_over:
             return LocalInteraction.GAME_OVER
         pd = self.session.decision
+        if self._pending_card_id is not None and pd is None:
+            return LocalInteraction.CARD_TARGET
         if pd is None:
             return LocalInteraction.WAITING
         return {
@@ -605,8 +867,6 @@ class GameScene(Scene):
 
     def open_asset_panel(self, debt_mode: bool = False) -> None:
         """打开资产面板。debt_mode 下顶部显示欠款进度。"""
-        from .asset_panel import AssetPanel
-
         st = self.session.state if self.session else None
         if st is None:
             return
@@ -615,19 +875,22 @@ class GameScene(Scene):
             return
 
         title = "我的资产"
-        note = ""
+        debt = None
         if debt_mode and st.debt:
             amount = int(st.debt["amount"])
-            shortfall = max(0, amount - player.money)
-            title = f"债务处理 · 还需 {money(shortfall)}"
-            note = (f"欠款 {money(amount)}（{st.debt.get('reason', '')}）"
-                    f" · 现金 {money(player.money)}")
-        self.modal = AssetPanel(
+            debt = {
+                "amount": amount,
+                "reason": st.debt.get("reason", ""),
+                "creditor": st.debt.get("creditor_id") or st.debt.get("creditor"),
+            }
+        panel = AssetPanel(
             st, player, self._asset_action,
             on_close=self._on_asset_panel_closed,
-            title=title, allow_sell=True, note=note,
-            on_declare=(self._declare_bankruptcy if debt_mode and st.debt else None),
+            title=title, allow_sell=True, debt=debt,
+            on_declare=(self._declare_bankruptcy if debt is not None else None),
         )
+        panel.board_view = self.board_view
+        self.modal = panel
 
     def _asset_action(self, action: str, property_id: str) -> bool:
         """资产面板里的操作：本地预检给即时反馈，真正的校验仍在引擎里。"""
@@ -647,24 +910,23 @@ class GameScene(Scene):
         if st is None or player is None:
             return False
 
-        from ..game import economy as econ
-
         prop = st.properties.get(str(property_id))
         if prop is None:
             return False
         if action == "upgrade":
-            cost, _ = econ.upgrade_cost(st, player, prop)
+            cost, _ = economy.upgrade_cost(st, player, prop)
             if prop.is_max_level or player.money < cost:
                 return False
         elif action == "mortgage":
-            ok, _ = econ.can_mortgage(prop)
+            ok, _ = economy.can_mortgage(prop)
             if not ok:
                 return False
         elif action == "redeem":
-            if player.money < econ.redeem_cost(prop):
+            if player.money < economy.redeem_cost(prop):
                 return False
 
         self.session.submit(cmd, {"property_id": property_id})
+        audio.play_sfx("click")
         return True
 
     def _declare_bankruptcy(self) -> None:
@@ -687,9 +949,6 @@ class GameScene(Scene):
     # ================================================================ 商店
 
     def _open_shop_dialog(self, decision) -> None:
-        from ..game.cards import TIMING_LABEL
-        from .dialogs import ShopDialog
-
         st = self.session.state if self.session else None
         player = self._my_player()
         if st is None or player is None or self._card_defs is None:
@@ -704,6 +963,7 @@ class GameScene(Scene):
                 "name": card.name,
                 "description": card.description,
                 "rarity": card.rarity,
+                "icon": card.icon,
                 "timing_label": TIMING_LABEL.get(card.timing, ""),
             })
         limit = int(st.rules.get("max_cards_per_player", 5))
@@ -736,9 +996,17 @@ class GameScene(Scene):
         if self.modal is not None:
             self.modal.handle_event(event)
             return
+        # 教练面板的按钮优先（它就画在棋盘上方）
+        if self._tutorial is not None and self._tutorial.handle_event(event):
+            return
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
+                if self._pending_card_id is not None:
+                    self._cancel_card()
+                    return
+                if self.presenter.dismiss_card():
+                    return
                 self._open_pause()
                 return
             if event.key == pygame.K_F1:
@@ -746,6 +1014,8 @@ class GameScene(Scene):
                                       not self.app.settings.debug_overlay)
                 return
             if event.key == pygame.K_SPACE:
+                if self.presenter.dismiss_card():
+                    return
                 self._try_roll()
                 return
             if event.key == pygame.K_i:
@@ -755,8 +1025,8 @@ class GameScene(Scene):
             if event.key in (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_5):
                 self._use_card_by_index(event.key - pygame.K_1)
                 return
-            if event.key == pygame.K_m:
-                self.board_view_zoom = not getattr(self, "board_view_zoom", False)
+            if event.key == pygame.K_F2:
+                return          # 交给全局快捷键处理（静音）
 
         if event.type == pygame.MOUSEWHEEL:
             if self.log_list.rect.collidepoint(pygame.mouse.get_pos()):
@@ -764,6 +1034,14 @@ class GameScene(Scene):
                 return
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            # 点任意处可关掉事件卡（不阻塞操作）
+            if self.presenter.dismiss_card():
+                return
+            if self._pending_card_id is not None and self.board_view is not None:
+                idx = self.board_view.hit_test(event.pos)
+                if idx is not None and idx in self._targets:
+                    self._confirm_card_target(idx)
+                    return
             if self.board_view is not None:
                 idx = self.board_view.hit_test(event.pos)
                 if idx is not None:
@@ -774,9 +1052,13 @@ class GameScene(Scene):
         for button in self.buttons:
             if button.handle_event(event):
                 return
-        for button in self.card_buttons:
-            if button.handle_event(event):
-                return
+        for tile in self.card_tiles:
+            if not tile.enabled:
+                continue
+            if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                if tile.rect.collidepoint(event.pos):
+                    self._start_card_use(tile.card_id)
+                    return
         if self.log_list.handle_event(event):
             return
         super().handle_event(event)
@@ -822,8 +1104,8 @@ class GameScene(Scene):
             return
         try:
             path = savegame.save_to_slot(self.session.engine, "manual")
-            self.toasts.push(f"已保存到 saves/{path.split(chr(92))[-1].split('/')[-1]}",
-                             "success")
+            name = path.replace("\\", "/").split("/")[-1]
+            self.toasts.push(f"已保存到 saves/{name}", "success")
         except Exception as exc:
             self.toasts.push(f"保存失败：{exc}", "error")
 
@@ -846,15 +1128,14 @@ class GameScene(Scene):
         self._autosave_time = 0.0
 
     def _use_card_by_index(self, index: int) -> None:
-        if self.session is None or self._card_defs is None:
+        if index >= len(self.card_tiles):
             return
-        st = self.session.state
-        if st is None:
+        tile = self.card_tiles[index]
+        if not tile.enabled:
+            self.toasts.push(f"「{tile.name}」暂不可用：{tile.reason}", "warning")
+            audio.play_sfx("error")
             return
-        player = st.player(self.session.player_id)
-        if player is None or index >= len(player.cards):
-            return
-        self._start_card_use(player.cards[index])
+        self._start_card_use(tile.card_id)
 
     def _start_card_use(self, card_id: str) -> None:
         if self.session is None or self._card_defs is None:
@@ -877,8 +1158,8 @@ class GameScene(Scene):
             self._confirm_card(card, None)
             return
 
-        # 构造目标列表
         pairs: list[tuple[Any, str]] = []
+        self._targets = {}
         if card.needs_target == "tile":
             for idx in targets:
                 tile = st.board.tile(idx)
@@ -888,27 +1169,32 @@ class GameScene(Scene):
                     if prop.owner_id is None:
                         label += f"（无主 {prop.price:,}）"
                     elif prop.owner_id == player.id:
-                        label += f"（你的 {prop.level}级）"
+                        label += f"（你的 {prop.level} 级）"
                     else:
                         owner = st.player(prop.owner_id)
                         label += f"（{owner.name if owner else '?'}）"
                 pairs.append((idx, label))
+                self._targets[idx] = label
         elif card.needs_target == "player":
             for pid in targets:
                 other = st.player(str(pid))
                 if other is not None:
-                    pairs.append((pid, f"{other.name}（现金 {other.money:,}）"))
+                    label = f"{other.name}（现金 {other.money:,}）"
+                    pairs.append((pid, label))
+                    self._targets[pid] = label
         elif card.needs_target == "own_property":
             for pid in targets:
                 prop = st.properties.get(str(pid))
                 if prop is not None:
-                    pairs.append((pid, f"{prop.name} {prop.level}→{prop.level + 1} 级"))
+                    label = f"{prop.name} {prop.level}→{prop.level + 1} 级"
+                    pairs.append((pid, label))
+                    self._targets[pid] = label
         elif card.needs_target == "dice_value":
-            from .animations import DICE_PIPS
-
             for value in targets:
                 landing = (player.position + int(value)) % st.board.tile_count
-                pairs.append((value, f"{value} 点 → {st.board.tile(landing).name}"))
+                label = f"{value} 点 → {st.board.tile(landing).name}"
+                pairs.append((value, label))
+                self._targets[value] = label
 
         if not pairs:
             self.toasts.push("没有可用目标", "warning")
@@ -920,15 +1206,34 @@ class GameScene(Scene):
             on_pick=lambda target: self._confirm_card(card, target),
             on_cancel=self._cancel_card,
             columns=1 if card.needs_target == "tile" else 2,
+            icon=card.icon,
+            timing=TIMING_LABEL.get(card.timing, ""),
         )
+
+    def _confirm_card_target(self, target: Any) -> None:
+        """在棋盘上直接点选目标。"""
+        if self._card_defs is None or self._pending_card_id is None:
+            return
+        card = self._card_defs.get(self._pending_card_id)
+        if card is None:
+            return
+        if self.modal is not None:
+            self.modal.close()
+            self.modal = None
+        self._confirm_card(card, target)
 
     def _cancel_card(self) -> None:
         self._pending_card_id = None
+        self._targets = {}
+        if self.modal is not None:
+            self.modal.close()
+            self.modal = None
 
     def _confirm_card(self, card, target: Any) -> None:
         if self.session is None:
             return
         self._pending_card_id = None
+        self._targets = {}
         self.session.submit(CommandType.USE_CARD,
                             {"card_id": card.id, "target": target})
         audio.play_sfx("click")
@@ -949,20 +1254,21 @@ class GameScene(Scene):
         self._draw_side(surface, st)
         self.draw_widgets(surface)
 
-        # 动画层
+        self.presenter.draw_world(surface, self.fonts)
         self.anim.draw(surface, self.fonts)
+        self.presenter.draw_overlay(surface, self.fonts)
 
-        # Tooltip
         mouse = pygame.mouse.get_pos()
         if self.app.settings.show_tooltips and self.modal is None:
             self._draw_tooltip(surface, st, mouse)
-
-        self._draw_phase_banner(surface, st)
 
         if self.app.settings.debug_overlay:
             self._draw_debug(surface, st)
 
         self.toasts.draw(surface, self.fonts, center_x=800, bottom_y=884)
+
+        if self._tutorial is not None:
+            self._tutorial.draw(surface, self.fonts)
 
         if self.modal is not None:
             self.modal.draw(surface, self.fonts)
@@ -975,17 +1281,19 @@ class GameScene(Scene):
         owners = {p.id: st.owned_count(p.id) for p in st.players}
         self.player_panel.draw(
             surface, self.fonts, st.players, st.current_player_id, owners,
-            self.anim.pulse.value, self._char_names, self._card_defs)
+            self.anim.pulse.value, self._char_names, self._card_defs,
+            money_anim=self._money_anim)
 
-        # 轮次信息
         info = ROUND_RECT
-        theme.rounded_rect(surface, info, theme.color("panel"), radius=12)
-        theme.rounded_rect(surface, info, None, radius=12,
-                           border=theme.color("border_soft"), border_width=1)
+        theme.panel(surface, info, fill="panel", radius=theme.RADIUS["lg"])
         theme.draw_text(surface, f"第 {st.round_number} 轮", self.fonts.h3(),
-                        theme.color("accent"), (info.centerx, info.y + 14), anchor="midtop")
+                        theme.color("accent"), (info.centerx, info.y + 12), anchor="midtop")
         theme.draw_text(surface, st.phase.label, self.fonts.tiny(), theme.color("text_dim"),
-                        (info.centerx, info.y + 40), anchor="midtop")
+                        (info.centerx, info.y + 38), anchor="midtop")
+        alive = sum(1 for p in st.players if not p.bankrupt)
+        theme.draw_text(surface, f"存活 {alive}/{len(st.players)}", self.fonts.micro(),
+                        theme.color("text_mute"), (info.centerx, info.bottom - 16),
+                        anchor="midtop")
 
     # ---------------------------------------------------------------- 棋盘
 
@@ -996,20 +1304,39 @@ class GameScene(Scene):
         owner_colors = {
             p.id: theme.hex_to_rgb(_color_of(p.color_id)) for p in st.players
         }
+        owner_slots = {p.id: p.slot for p in st.players}
+        monopolies = set()
+        for p in st.players:
+            if not p.bankrupt:
+                monopolies |= monopoly_districts(st, p.id)
+
         bv.draw_background(surface)
-        bv.draw_tiles_dynamic(surface, self.fonts, st.properties, st.barriers, owner_colors)
+        bv.draw_tiles_dynamic(surface, self.fonts, st.properties, st.barriers,
+                              owner_colors, owner_slots, monopolies)
+
+        # 逐格移动反馈：经过的格子亮一下
+        for tile_index, t in self._move_trail:
+            rect = bv.tile_rect(tile_index)
+            alpha = int(150 * (1.0 - t))
+            inflate = int(-2 + 8 * t)
+            theme.rounded_rect(surface, rect.inflate(inflate, inflate),
+                               theme.color("accent", alpha), radius=10,
+                               border=theme.color("accent_soft", alpha), border_width=2)
+
+        # 道具选目标：合法目标高亮
+        if self._pending_card_id is not None:
+            for target in self._targets:
+                if isinstance(target, int) and 0 <= target < st.board.tile_count:
+                    bv.draw_target_ring(surface, target, "primary", self.anim.pulse.value)
+
         bv.draw_hover(surface)
         if st.phase is not GamePhase.MOVING:
             bv.draw_highlight(surface, bv.highlight_index, self.anim.pulse.value)
 
-        # 中央信息
         inner = bv.inner_rect
         self._draw_center_info(surface, st, inner)
-
-        # 棋子
         self._draw_pieces(surface, st, bv)
 
-        # 点击过的地块描边
         if self.tile_index_clicked is not None:
             rect = bv.tile_rect(self.tile_index_clicked)
             theme.rounded_rect(surface, rect.inflate(-2, -2), None, radius=10,
@@ -1017,68 +1344,128 @@ class GameScene(Scene):
 
     def _draw_center_info(self, surface: pygame.Surface, st: GameState,
                           inner: pygame.Rect) -> None:
-        """中央区域：当前行动提示 / 奖金池 / 等待提示。"""
+        """中央区域：阶段提示 + 当前玩家卡 + 骰子托盘 + 最近事件 + 奖金池。
+
+        这些内容都不可点击（中央区域不参与命中判定），因此不会挡住棋盘点选。
+        """
         cur = st.current_player
         if cur is None:
             return
-
-        # 大号当前回合提示（阶段横幅占 inner.y+12..46）
-        y = inner.y + 118
         is_my = self.session.is_mine(cur.id) if self.session else False
-        head = "该你行动了" if is_my else f"{cur.name} 的回合"
-        color_name = "accent" if is_my else "text_dim"
-        theme.draw_text(surface, head, self.fonts.sized(30, True), theme.color(color_name),
-                        (inner.centerx, y), anchor="midtop")
-        y += 44
-        sub = "（本机操作）" if is_my else ""
-        if sub:
-            theme.draw_text(surface, sub, self.fonts.small(),
-                            theme.color("text_mute"), (inner.centerx, y), anchor="midtop")
 
-        # 奖金池
-        if st.bonus_pool > 0:
-            pool = pygame.Rect(inner.centerx - 120, inner.bottom - 78, 240, 44)
-            theme.rounded_rect(surface, pool, theme.color("bg_alt", 220), radius=20)
-            theme.rounded_rect(surface, pool, None, radius=20,
+        # ---- 阶段胶囊
+        phase_font = self.fonts.sized(theme.FONT["small"], True)
+        label = st.phase.label
+        pill = pygame.Rect(0, 0, phase_font.size(label)[0] + 44, 32)
+        pill.midtop = (inner.centerx, inner.y + 10)
+        accent = "accent" if is_my else "border"
+        theme.rounded_rect(surface, pill, theme.color("bg_alt", 232), radius=16)
+        theme.rounded_rect(surface, pill, None, radius=16, border=theme.color(accent),
+                           border_width=2)
+        theme.draw_text(surface, label, phase_font, theme.color(accent),
+                        pill.center, anchor="center")
+
+        # ---- 当前玩家卡
+        card = pygame.Rect(0, 0, 520, 92)
+        card.midtop = (inner.centerx, pill.bottom + 14)
+        col = theme.hex_to_rgb(_color_of(cur.color_id))
+        theme.panel(surface, card, fill="panel", radius=theme.RADIUS["xl"],
+                    border=theme.color("accent") if is_my else None, shadow=True)
+        if is_my:
+            theme.rounded_rect(surface, card, None, radius=theme.RADIUS["xl"],
                                border=theme.color("accent"), border_width=2)
+        avatar = pygame.Rect(card.x + 14, card.centery - 26, 52, 52)
+        pygame.draw.circle(surface, col, avatar.center, 26)
+        pygame.draw.circle(surface, theme.darken(col, 0.4), avatar.center, 26, 2)
+        initial = (self._char_names.get(cur.character_id) or cur.name or "?")[0]
+        theme.draw_text(surface, initial, self.fonts.sized(24, True), (255, 255, 255),
+                        avatar.center, anchor="center")
+
+        head = "该你行动了" if is_my else f"{cur.name} 的回合"
+        theme.draw_text(surface, head, self.fonts.sized(theme.FONT["h2"], True),
+                        theme.color("accent" if is_my else "text"), (avatar.right + 14, card.y + 12))
+        money_text = f"{cur.money:,}"
+        theme.draw_text(surface, money_text, self.fonts.sized(theme.FONT["big"], True),
+                        theme.color("text_mute" if cur.bankrupt else "accent"),
+                        (card.right - 18, card.y + 12), anchor="topright")
+        sub_parts = [f"资产 {st.player_asset_value(cur.id):,}",
+                     f"地产 {st.owned_count(cur.id)}"]
+        if cur.status_effects:
+            sub_parts.append("、".join(e.label for e in cur.status_effects[:2]))
+        theme.draw_text(surface, "　·　".join(sub_parts), self.fonts.sized(theme.FONT["small"]),
+                        theme.color("text_dim"), (avatar.right + 14, card.y + 46))
+
+        # 决策指引（我会操作时显示明确下一步）
+        hint = self._next_step_hint(st)
+        if hint:
+            hint_font = self.fonts.sized(theme.FONT["small"], True)
+            theme.draw_text(surface, hint, hint_font,
+                            theme.color("accent" if is_my else "text_mute"),
+                            (card.centerx, card.bottom + 10), anchor="midtop")
+
+        # ---- 骰子托盘
+        tray = pygame.Rect(0, 0, 300, 118)
+        tray.center = (inner.centerx, inner.centery + 6)
+        theme.rounded_rect(surface, tray, theme.color("bg_alt", 120), radius=18)
+        theme.rounded_rect(surface, tray, None, radius=18,
+                           border=theme.color("border_soft", 150), border_width=1)
+        theme.draw_text(surface, "骰子", self.fonts.sized(theme.FONT["tiny"], True),
+                        theme.color("text_mute"), (tray.x + 14, tray.centery),
+                        anchor="midleft")
+
+        # ---- 最近事件（1 行摘要，让玩家随时知道刚发生了什么）
+        recent = [e for e in st.event_log[-14:]
+                  if e.type not in (EventType.PHASE_CHANGED,)]
+        if recent:
+            ev = recent[-1]
+            color, icon_name = self.LOG_STYLE.get(ev.type, ("text_dim", "info"))
+            plate = pygame.Rect(0, 0, inner.width - 80, 42)
+            plate.midtop = (inner.centerx, tray.bottom + 12)
+            theme.rounded_rect(surface, plate, theme.color("bg_alt", 210), radius=12)
+            icons.draw_icon(surface, icon_name or "info",
+                            pygame.Rect(plate.x + 12, plate.centery - 10, 20, 20),
+                            theme.color(color), theme.color("shadow"))
+            theme.draw_text(surface,
+                            theme.truncate(ev.message, self.fonts.sized(theme.FONT["small"]),
+                                           plate.width - 60),
+                            self.fonts.sized(theme.FONT["small"]),
+                            theme.color("text"), (plate.x + 42, plate.centery),
+                            anchor="midleft")
+
+        # ---- 奖金池
+        if st.bonus_pool > 0:
+            pool = pygame.Rect(0, 0, 250, 44)
+            pool.midbottom = (inner.centerx, inner.bottom - 18)
+            theme.rounded_rect(surface, pool, theme.color("bg_alt", 232), radius=22)
+            theme.rounded_rect(surface, pool, None, radius=22,
+                               border=theme.color("accent"), border_width=2)
+            icons.draw_icon(surface, "trophy",
+                            pygame.Rect(pool.x + 16, pool.centery - 11, 22, 22),
+                            theme.color("accent"), theme.color("shadow"))
             theme.draw_text(surface, f"奖金池 {st.bonus_pool:,}", self.fonts.body(),
-                            theme.color("accent"), pool.center, anchor="center")
+                            theme.color("accent"),
+                            (pool.x + 46, pool.centery), anchor="midleft")
 
-        # 等待他人提示
-        watching = self.session.watching_decision if self.session else None
-        if watching is not None and not (self.session.is_mine(watching.player_id)):
-            waiter = st.player(watching.player_id)
-            if waiter is not None:
-                rect = pygame.Rect(inner.centerx - 200, inner.y + 210, 400, 50)
-                theme.rounded_rect(surface, rect, theme.color("bg_alt", 210), radius=14)
-                theme.rounded_rect(surface, rect, None, radius=14,
-                                   border=theme.color("border"), border_width=1)
-                dots = "·" * (1 + int(self.anim.pulse.value * 3))
-                theme.draw_text(surface, f"等待 {waiter.name} 操作 {dots}", self.fonts.body(),
-                                theme.color("text_dim"), rect.center, anchor="center")
+        # 「等待某人操作」不再单独画一块——玩家卡下面那行指引已经写了同样的话，
+        # 同一屏出现两次只会分散注意力。
 
-    def _phase_hint(self, st: GameState, cur) -> str:
-        phase = st.phase
-        if phase is GamePhase.WAIT_ROLL:
-            if cur.in_jail:
-                return "在看守所中，需要决定如何离开"
-            return "点击右侧「掷骰子」或按空格开始行动"
-        if phase is GamePhase.ROLLING:
-            return "骰子滚动中…"
-        if phase is GamePhase.MOVING:
-            return "移动中…"
-        if phase is GamePhase.WAIT_DECISION:
-            return "等待决策"
-        if phase is GamePhase.JAIL_DECISION:
-            return "看守所决策中"
-        if phase is GamePhase.GAME_OVER:
-            return "对局已结束"
-        return ""
+    def _next_step_hint(self, st: GameState) -> str:
+        """给玩家一句「现在该点哪里」的明确指引。"""
+        if self.session is None:
+            return ""
+        state = self.interaction_state()
+        if state == LocalInteraction.WAITING:
+            pd = self.session.watching_decision
+            if pd is not None:
+                other = st.player(pd.player_id)
+                if other is not None:
+                    return f"等待 {other.name} 操作…"
+            return "等待其他玩家…"
+        return LocalInteraction.HINTS.get(state, "")
 
     def _draw_pieces(self, surface: pygame.Surface, st: GameState,
                      bv: BoardView) -> None:
         """绘制所有棋子，同格自动错位。"""
-        # 计算每格上的玩家
         by_tile: dict[int, list[Any]] = {}
         for p in st.players:
             if p.bankrupt:
@@ -1091,18 +1478,17 @@ class GameScene(Scene):
             players = sorted(players, key=lambda x: x.slot)
             n = len(players)
             center = bv.tile_center(tile_index)
-            # 棋子半径：单人时最大，同格人数越多越紧凑，但保证相邻两颗不相交
-            radius = max(9, int(bv.cell * 0.155))
+            radius = max(10, int(bv.cell * 0.17))
             if n > 2:
-                radius = max(8, int(radius * 0.86))
+                radius = max(9, int(radius * 0.88))
             if n > 4:
-                radius = max(7, int(radius * 0.9))
-            ring = 0 if n == 1 else min(bv.cell * 0.30, radius * 0.72 * n)
+                radius = max(8, int(radius * 0.9))
+            ring = 0 if n == 1 else min(bv.cell * 0.30, radius * 0.78 * n)
             for i, player in enumerate(players):
                 if player.id == moving_id and self._move_anim is not None:
-                    continue  # 移动中的棋子单独画
+                    continue
                 if n == 1:
-                    offset = (0, -int(bv.cell * 0.16))
+                    offset = (0, -int(bv.cell * 0.17))
                 else:
                     angle = (i / n) * math.tau - math.pi / 2
                     offset = (int(math.cos(angle) * ring), int(math.sin(angle) * ring) + 2)
@@ -1110,15 +1496,12 @@ class GameScene(Scene):
                                      (center[0] + offset[0], center[1] + offset[1]),
                                      radius, bv.cell)
 
-        # 移动中的棋子
         if moving_id is not None and self._move_anim is not None:
             player = st.player(moving_id)
             if player is not None:
-                start = bv.tile_center(self._move_anim.path[0] if self._move_anim.path
-                                       else player.position)
                 from_center = bv.tile_center(st.move_from)
                 pos = self._move_anim.current_center(from_center)
-                move_radius = max(9, int(bv.cell * 0.155))
+                move_radius = max(10, int(bv.cell * 0.17))
                 self._draw_one_piece(surface, st, player, pos, move_radius, bv.cell,
                                      moving=True)
 
@@ -1128,44 +1511,50 @@ class GameScene(Scene):
         x, y = int(pos[0]), int(pos[1])
         col = theme.hex_to_rgb(_color_of(player.color_id))
         is_current = player.id == st.current_player_id
+        pulse = self.anim.pulse.value
 
         # 当前玩家光环 + 箭头
         if is_current:
-            pulse = self.anim.pulse.value
-            r = int(radius + 7 + 4 * pulse)
+            r = int(radius + 8 + 4 * pulse)
             halo = pygame.Surface((r * 2 + 8, r * 2 + 8), pygame.SRCALPHA)
             pygame.draw.circle(halo, theme.color("accent", int(60 + 60 * pulse)),
                                (r + 4, r + 4), r)
             surface.blit(halo, (x - r - 4, y - r - 4))
-            # 头顶箭头
-            ay = y - radius - 16 - int(4 * pulse)
+            ay = y - radius - 18 - int(4 * pulse)
             pygame.draw.polygon(surface, theme.color("accent"),
-                                [(x, ay + 12), (x - 9, ay), (x + 9, ay)])
+                                [(x, ay + 13), (x - 10, ay), (x + 10, ay)])
             pygame.draw.polygon(surface, theme.color("accent_dark"),
-                                [(x, ay + 12), (x - 9, ay), (x + 9, ay)], 2)
+                                [(x, ay + 13), (x - 10, ay), (x + 10, ay)], 2)
 
+        # 影子（移动时抬高，影子变小）
+        shadow_r = radius if not moving else max(4, radius - 4)
         shadow = pygame.Surface((radius * 2 + 6, radius * 2 + 6), pygame.SRCALPHA)
-        pygame.draw.circle(shadow, (0, 0, 0, 90), (radius + 3, radius + 5), radius)
+        pygame.draw.circle(shadow, (0, 0, 0, 90), (radius + 3, radius + 8), shadow_r)
         surface.blit(shadow, (x - radius - 3, y - radius - 3))
 
         pygame.draw.circle(surface, col, (x, y), radius)
-        pygame.draw.circle(surface, theme.lighten(col, 0.35), (x - radius // 3, y - radius // 3),
+        pygame.draw.circle(surface, theme.lighten(col, 0.32), (x - radius // 3, y - radius // 3),
                            max(2, radius // 3))
-        pygame.draw.circle(surface, theme.darken(col, 0.4), (x, y), radius, 2)
+        pygame.draw.circle(surface, (255, 255, 255), (x, y), radius, 1)
+        pygame.draw.circle(surface, theme.darken(col, 0.45), (x, y), radius, 2)
 
-        # 编号（颜色之外的第二重标识）
-        theme.draw_text(surface, str(player.slot + 1), self.fonts.micro(), (255, 255, 255),
-                        (x, y), anchor="center")
+        theme.draw_text(surface, str(player.slot + 1), self.fonts.sized(radius, True),
+                        (255, 255, 255), (x, y), anchor="center")
 
-        # 状态图标
-        icons = []
+        for i, icon_name in enumerate(self._piece_status_icons(player)):
+            icons.draw_icon(surface, icon_name,
+                            pygame.Rect(x + radius - 6, y - radius - 2 + i * 15, 15, 15),
+                            theme.color("warning"), theme.color("shadow"))
+
+    def _piece_status_icons(self, player) -> list[str]:
+        out: list[str] = []
         if player.in_jail:
-            icons.append("锁")
+            out.append("jail")
         if player.disconnected:
-            icons.append("断")
-        for i, icon in enumerate(icons[:2]):
-            theme.draw_text(surface, icon, self.fonts.micro(), theme.color("warning"),
-                            (x + radius - 2, y - radius + i * 11), anchor="center")
+            out.append("network")
+        elif player.bot_controlled:
+            out.append("person")
+        return out[:2]
 
     # ---------------------------------------------------------------- 右栏
 
@@ -1176,67 +1565,65 @@ class GameScene(Scene):
 
     def _draw_action_panel(self, surface: pygame.Surface, st: GameState) -> None:
         rect = pygame.Rect(SIDE_RECT.x, SIDE_RECT.y, SIDE_RECT.width, ACTION_H)
-        theme.rounded_rect(surface, rect, theme.color("panel"), radius=14)
-        theme.rounded_rect(surface, rect, None, radius=14,
-                           border=theme.color("border_soft"), border_width=1)
+        theme.panel(surface, rect, fill="panel", radius=theme.RADIUS["xl"])
         cur = st.current_player
-        theme.draw_text(surface, "当前行动", self.fonts.h3(), theme.color("text"),
-                        (rect.x + 16, rect.y + 12))
+        theme.section_header(surface, self.fonts, pygame.Rect(rect.x + 16, rect.y + 12,
+                                                              rect.width - 32, 22),
+                             "当前行动", icon="clock")
 
         if cur is None:
             return
         is_mine = self.session.is_mine(cur.id) if self.session else False
 
-        # 当前玩家名
         col = theme.hex_to_rgb(_color_of(cur.color_id))
-        pygame.draw.circle(surface, col, (rect.x + 28, rect.y + 52), 12)
-        theme.draw_text(surface, theme.truncate(cur.name, self.fonts.h3(), 200),
-                        self.fonts.h3(), theme.color("text"), (rect.x + 48, rect.y + 40))
+        pygame.draw.circle(surface, col, (rect.x + 30, rect.y + 58), 13)
+        theme.draw_text(surface, theme.truncate(cur.name, self.fonts.h3(), 180),
+                        self.fonts.h3(), theme.color("text"), (rect.x + 50, rect.y + 46))
         theme.draw_text(surface, f"{cur.money:,}", self.fonts.h3(), theme.color("accent"),
-                        (rect.right - 16, rect.y + 40), anchor="topright")
+                        (rect.right - 18, rect.y + 46), anchor="topright")
 
-        # ---- 掷骰按钮（持久化对象，位置与命中判定共用同一组常量）
         self.roll_button.draw(surface, self.fonts)
 
-        # 骰子预览
         preview = DICE_PREVIEW_RECT
-        theme.rounded_rect(surface, preview, theme.color("bg_alt"), radius=12)
+        theme.rounded_rect(surface, preview, theme.color("bg_alt"), radius=theme.RADIUS["lg"])
         if st.dice is not None:
             d1 = pygame.Rect(0, 0, 34, 34)
-            d1.center = (preview.x + 44, preview.centery)
+            d1.center = (preview.x + 46, preview.centery)
             d2 = pygame.Rect(0, 0, 34, 34)
-            d2.center = (preview.x + 86, preview.centery)
+            d2.center = (preview.x + 88, preview.centery)
             draw_die(surface, d1, st.dice.die1)
             draw_die(surface, d2, st.dice.die2)
             theme.draw_text(surface, f"{st.dice.total}", self.fonts.h3(),
-                            theme.color("accent"), (preview.right - 26, preview.centery),
+                            theme.color("accent"), (preview.right - 28, preview.centery),
                             anchor="center")
         else:
             theme.draw_text(surface, "— —", self.fonts.h2(), theme.color("text_mute"),
                             preview.center, anchor="center")
 
-        # ---- 自己 / 旁人提示
-        hint_rect = pygame.Rect(rect.x + 16, rect.y + 148, rect.width - 32, 26)
-        if is_mine:
-            hint = self._phase_hint(st, cur)
-            color_name = "accent"
-        else:
-            hint = f"等待 {cur.name} 行动"
-            color_name = "text_dim"
-        theme.draw_text(surface, theme.truncate(hint, self.fonts.small(), hint_rect.width),
-                        self.fonts.small(), theme.color(color_name),
-                        (hint_rect.x, hint_rect.y))
+        # ---- 下一步指引（比 v0.2的一句小字更明确）
+        hint_state = self.interaction_state()
+        hint = self._next_step_hint(st)
+        hint_rect = pygame.Rect(rect.x + 16, rect.y + 152, rect.width - 32, 24)
+        if hint:
+            icons.draw_icon(surface, "info",
+                            pygame.Rect(hint_rect.x, hint_rect.y + 3, 16, 16),
+                            theme.color("accent" if is_mine else "text_mute"),
+                            theme.color("shadow"))
+            theme.draw_text(surface, theme.truncate(hint, self.fonts.small(),
+                                                    hint_rect.width - 24),
+                            self.fonts.small(),
+                            theme.color("accent" if is_mine else "text_dim"),
+                            (hint_rect.x + 22, hint_rect.y + 2))
 
-        # ---- 我的道具
         me = st.player(self.session.player_id) if self.session else None
         if me is not None and not me.bankrupt:
             self._draw_my_cards(surface, st, me, rect)
 
     def _refresh_action_buttons(self) -> None:
-        """按当前状态刷新侧栏按钮。
+        """按当前状态刷新侧栏按钮与手牌。
 
-        每帧都会调用，所以必须做「无变化就跳过」的判断：
-        否则每帧新建一批 Button 对象会带来大量垃圾，拖慢帧率。
+        每帧都会调用，所以必须做「无变化就跳过」的判断，
+        否则每帧新建一批对象会带来大量垃圾、拖慢帧率。
         """
         if self.session is None or self.roll_button is None:
             return
@@ -1246,70 +1633,101 @@ class GameScene(Scene):
         decision = self.session.decision
         can_roll = (decision is not None and decision.kind == DecisionKind.ROLL
                     and st.phase is GamePhase.WAIT_ROLL)
-        self.roll_button.set_enabled(can_roll)
+        if can_roll != self.roll_button.enabled:
+            self.roll_button.set_enabled(can_roll)
+            if can_roll:
+                self.roll_button.tooltip = "空格键也可以掷骰"
+            else:
+                self.roll_button.tooltip = LocalInteraction.HINTS.get(
+                    self.interaction_state(), "现在还不能掷骰")
 
         me = st.player(self.session.player_id)
         cards = tuple(me.cards[:5]) if me is not None and not me.bankrupt else ()
-        # 手牌与可用性都没变时直接复用上一帧的按钮
-        if cards == self._card_buttons_key and can_roll == self._card_buttons_roll:
+        phase_key = (st.phase.value, st.turn_rolled, can_roll,
+                     st.debt is not None, st.pending_decision.id if st.pending_decision else "")
+        if cards == self._card_tiles_key and phase_key == getattr(self, "_card_tiles_phase", None):
             return
-        self._card_buttons_key = cards
-        self._card_buttons_roll = can_roll
+        self._card_tiles_key = cards
+        self._card_tiles_phase = phase_key
 
-        buttons: list[Button] = []
+        tiles: list[CardTile] = []
+        reasons: dict[str, str] = {}
         if me is not None and not me.bankrupt and self._card_defs is not None:
             for i, card_id in enumerate(cards):
                 card = self._card_defs.get(card_id)
-                enabled = bool(card) and can_use(st, me, card)[0]
-                buttons.append(Button(
-                    card_button_rect(i), "",
-                    on_click=(lambda cid=card_id: self._start_card_use(cid)),
-                    enabled=enabled, style="ghost"))
-        self.card_buttons = buttons
+                if card is None:
+                    continue
+                ok, reason = can_use(st, me, card)
+                reasons[card_id] = reason if not ok else ""
+                tiles.append(CardTile(
+                    card_button_rect(i), card_id, card.name, card.icon,
+                    TIMING_LABEL.get(card.timing, ""), card.description, ok,
+                    reason or "当前状态不满足使用条件"))
+        self.card_tiles = tiles
+        self._card_reasons = reasons
 
     def _draw_my_cards(self, surface: pygame.Surface, st: GameState, me,
                        panel: pygame.Rect) -> None:
-        theme.draw_text(surface, f"我的道具（{len(me.cards)}/5）", self.fonts.tiny(),
-                        theme.color("text_dim"), (panel.x + 16, panel.y + 178))
+        limit = int(st.rules.get("max_cards_per_player", 5))
+        title_rect = pygame.Rect(panel.x + 16, panel.y + 186, panel.width - 32, 20)
+        theme.draw_text(surface, f"我的道具（{len(me.cards)}/{limit}）",
+                        self.fonts.sized(theme.FONT["tiny"], True),
+                        theme.color("text_dim"), (title_rect.x, title_rect.y))
+        usable = sum(1 for t in self.card_tiles if t.enabled)
+        if self.card_tiles:
+            theme.draw_text(surface, f"现在可用 {usable} 张", self.fonts.micro(),
+                            theme.color("success" if usable else "text_mute"),
+                            (title_rect.right, title_rect.y + 2), anchor="topright")
         if not me.cards:
-            theme.draw_text(surface, "暂无道具，机遇事件中可能获得",
+            theme.draw_text(surface, "暂无道具 · 机遇事件或商店可以获得",
                             self.fonts.micro(), theme.color("text_mute"),
-                            (CARD_ORIGIN[0], CARD_ORIGIN[1] + 4))
+                            (CARD_ORIGIN[0], CARD_ORIGIN[1] + 14))
             return
 
-        mouse = pygame.mouse.get_pos()
-        self._card_tooltip = ""
-        for i, card_id in enumerate(me.cards[:5]):
-            card = self._card_defs.get(card_id) if self._card_defs else None
-            name = card.name if card else card_id
-            rect = card_button_rect(i)
-            enabled = bool(card) and can_use(st, me, card)[0]
-            theme.rounded_rect(surface, rect,
-                               theme.color("panel_hi") if enabled else theme.color("bg_alt"),
-                               radius=8)
-            theme.rounded_rect(surface, rect, None, radius=8,
-                               border=theme.color("accent" if enabled else "border_soft"),
-                               border_width=1)
-            theme.draw_text(surface, theme.truncate(name, self.fonts.micro(), CARD_W - 10),
-                            self.fonts.micro(),
-                            theme.color("text") if enabled else theme.color("text_mute"),
-                            rect.center, anchor="center")
-            if rect.collidepoint(mouse):
-                theme.rounded_rect(surface, rect, None, radius=8,
-                                   border=theme.color("accent"), border_width=2)
-                if card is not None:
-                    self._card_tooltip = (f"{card.name}\n{card.description}\n"
-                                          f"（点击或按 {i + 1} 使用）")
+        for i, tile in enumerate(self.card_tiles):
+            rect = tile.rect
+            if tile.enabled:
+                fill = theme.color("panel_hi")
+                border = theme.color("accent")
+            else:
+                fill = theme.color("bg_alt")
+                border = theme.color("border_soft")
+            theme.rounded_rect(surface, rect, fill, radius=theme.RADIUS["sm"])
+            theme.rounded_rect(surface, rect, None, radius=theme.RADIUS["sm"],
+                               border=border, border_width=2 if tile.hovered else 1)
+            icon_col = theme.color("accent" if tile.enabled else "text_mute")
+            icons.draw_icon(surface, tile.icon,
+                            pygame.Rect(rect.x + 6, rect.y + 6, 22, 22), icon_col,
+                            theme.color("shadow"))
+            # 时机标记 + 快捷键
+            badge = pygame.Rect(rect.right - 20, rect.y + 5, 14, 14)
+            pygame.draw.circle(surface, theme.color("bg" if tile.enabled else "bg_alt"),
+                               badge.center, 7)
+            theme.draw_text(surface, str(i + 1), self.fonts.micro(),
+                            theme.color("text" if tile.enabled else "text_mute"),
+                            badge.center, anchor="center")
+            name_font = self.fonts.sized(11, True)
+            text_w = rect.width - 14 - (14 if not tile.enabled else 0)
+            theme.draw_text(surface, theme.truncate(tile.name, name_font, text_w),
+                            name_font,
+                            theme.color("text" if tile.enabled else "text_mute"),
+                            (rect.x + 7, rect.bottom - 17))
+            if not tile.enabled:
+                # 不可用的卡压一层灰 + 右侧一把小锁，一眼看出现在打不出去
+                theme.rounded_rect(surface, rect, theme.color("bg", 90),
+                                   radius=theme.RADIUS["sm"])
+                icons.draw_icon(surface, "lock",
+                                pygame.Rect(rect.right - 17, rect.bottom - 19, 13, 13),
+                                theme.color("warning"), theme.color("shadow"))
 
     def _draw_log(self, surface: pygame.Surface) -> None:
         rect = self.log_panel_rect
-        theme.rounded_rect(surface, rect, theme.color("panel"), radius=14)
-        theme.rounded_rect(surface, rect, None, radius=14,
-                           border=theme.color("border_soft"), border_width=1)
-        theme.draw_text(surface, "事件日志", self.fonts.h3(), theme.color("text"),
-                        (rect.x + 16, rect.y + 10))
+        theme.panel(surface, rect, fill="panel", radius=theme.RADIUS["xl"])
+        theme.section_header(surface, self.fonts,
+                             pygame.Rect(rect.x + 16, rect.y + 12, rect.width - 32, 22),
+                             "事件日志", icon="book", note="滚轮翻看")
         pygame.draw.line(surface, theme.color("border_soft"),
-                         (rect.x + 12, rect.y + 42), (rect.right - 12, rect.y + 42), 1)
+                         (rect.x + 12, rect.y + 44), (rect.right - 12, rect.y + 44), 1)
         self.log_list.draw(surface, self.fonts)
 
     # ---------------------------------------------------------------- 提示
@@ -1328,13 +1746,11 @@ class GameScene(Scene):
                 if st.barrier_at(idx):
                     text += "\n注意：此处有路障，经过的玩家会被拦下"
         elif self.hover_player is not None and self.hover_player < len(st.players):
-            owner_counts = st.owned_count(st.players[self.hover_player].id)
             text = self.player_panel.tooltip_for(
                 self.hover_player, st.players,
                 lambda pid: st.properties_of(pid), self._card_defs)
-        card_tip = getattr(self, "_card_tooltip", "")
-        if card_tip and any(b.rect.collidepoint(mouse) for b in self.card_buttons):
-            text = card_tip
+        if self._card_tooltip and any(t.hovered for t in self.card_tiles):
+            text = self._card_tooltip
         if text:
             draw_tooltip(surface, self.fonts, text, mouse, bounds=(SCREEN_W, SCREEN_H))
 
@@ -1351,25 +1767,6 @@ class GameScene(Scene):
                 draw_tooltip(surface, self.fonts, text, mouse, bounds=(SCREEN_W, SCREEN_H))
                 return
 
-    def _draw_phase_banner(self, surface: pygame.Surface, st: GameState) -> None:
-        """把当前阶段画在棋盘中央区域顶部。
-
-        不能画在棋盘外——顶部已经有玩家面板，画上去会互相遮挡。
-        """
-        if self.modal is not None or self.board_view is None:
-            return
-        inner = self.board_view.inner_rect
-        text = st.phase.label
-        font = self.fonts.body()
-        width = font.size(text)[0] + 44
-        rect = pygame.Rect(0, 0, width, 34)
-        rect.midtop = (inner.centerx, inner.y + 12)
-        theme.rounded_rect(surface, rect, theme.color("bg_alt", 225), radius=17)
-        theme.rounded_rect(surface, rect, None, radius=17,
-                           border=theme.color("accent"), border_width=2)
-        theme.draw_text(surface, text, font, theme.color("accent"),
-                        rect.center, anchor="center")
-
     # ---------------------------------------------------------------- 调试
 
     def _draw_debug(self, surface: pygame.Surface, st: GameState) -> None:
@@ -1381,11 +1778,12 @@ class GameScene(Scene):
             f"current  {st.current_player_id}",
             f"decision {(st.pending_decision.kind + ' → ' + st.pending_decision.player_id) if st.pending_decision else '-'}",
             f"seed     {st.seed} (rng {st.rng_counter})",
+            f"ledger   {len(st.ledger.entries)} 条 (seq {st.ledger._seq})",
             f"hash     {st.canonical_hash()}",
             f"mode     {'单机/房主' if self.session and self.session.engine else '客户端'}",
             f"net      {self.app.net_status()}",
         ]
-        rect = pygame.Rect(BOARD_RECT.x + 8, BOARD_RECT.bottom - 8 - len(lines) * 17, 460,
+        rect = pygame.Rect(BOARD_RECT.x + 8, BOARD_RECT.bottom - 8 - len(lines) * 17, 470,
                            len(lines) * 17 + 12)
         layer = pygame.Surface(rect.size, pygame.SRCALPHA)
         layer.fill(theme.color("bg", 215))

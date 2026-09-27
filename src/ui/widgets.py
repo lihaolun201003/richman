@@ -62,7 +62,13 @@ class Widget:
 # ==================================================================== 按钮
 
 class Button(Widget):
-    """圆角按钮。"""
+    """圆角按钮。
+
+    - `icon` 是 **矢量图标名**（icons.py），不是文字符号：
+      文字符号（`▶` `▮`）在中文字体里经常缺字形，会渲染成豆腐块。
+    - 禁用时把原因写进 `tooltip`，由 `draw_tooltip` / `_draw_modal_tooltip`
+      在悬停时显示，玩家才知道「为什么点不动」。
+    """
 
     STYLES = {
         "primary": ("primary", "text", "primary_dark"),
@@ -71,6 +77,7 @@ class Button(Widget):
         "ghost": (None, "text_dim", "border_soft"),
         "danger": ("danger", "text", "danger_dark"),
         "success": ("success", "text", "success_dark"),
+        "warning": ("warning", "text_dark", "accent_dark"),
     }
 
     def __init__(
@@ -82,9 +89,10 @@ class Button(Widget):
         enabled: bool = True,
         icon: str = "",
         subtitle: str = "",
-        font_size: int = 19,
+        font_size: int | None = None,
         tooltip: str = "",
-        radius: int = 12,
+        radius: int = theme.RADIUS["lg"],
+        compact: bool = False,
     ) -> None:
         super().__init__(rect)
         self.label = label
@@ -93,7 +101,7 @@ class Button(Widget):
         self.style = style
         self.enabled = enabled
         self.icon = icon
-        self.font_size = font_size
+        self.font_size = font_size or (theme.FONT["small"] if compact else theme.FONT["button"])
         self.tooltip = tooltip
         self.radius = radius
         self.pressed = False
@@ -130,6 +138,8 @@ class Button(Widget):
     def draw(self, surface: pygame.Surface, fonts: theme.FontManager) -> None:
         if not self.visible:
             return
+        from . import icons
+
         fill_name, text_name, dark_name = self.STYLES.get(self.style, self.STYLES["primary"])
         rect = pygame.Rect(self.rect)
         if self.pressed and self.hovered:
@@ -156,29 +166,41 @@ class Button(Widget):
 
         font = fonts.sized(self.font_size, True)
         label = self.label
-        if self.icon:
-            label = f"{self.icon}  {label}"
-        text_rect = rect
+        # 图标 + 文字视为一个整体居中，避免图标与文字分离
+        icon_side = max(14, int(font.get_height() * 0.92))
+        gap = theme.SPACE["sm"] if self.icon and label else 0
+        text_w = font.size(label)[0] if label else 0
+        total_w = (icon_side + gap if self.icon else 0) + text_w
+        start_x = rect.centerx - total_w // 2
+        center_y = rect.y + rect.height // 2
+
         if self.subtitle:
-            text_rect = pygame.Rect(rect.x, rect.y + rect.height // 2 - 20, rect.width, 22)
-            theme.draw_text(surface, theme.truncate(label, font, rect.width - 20), font,
-                            text_color, text_rect.center, anchor="center")
-            sub = fonts.small()
+            center_y = rect.y + rect.height // 2 - 12
+        if self.icon:
+            icons.draw_icon(surface, self.icon,
+                            pygame.Rect(start_x, center_y - icon_side // 2,
+                                        icon_side, icon_side),
+                            text_color, theme.darken(text_color, 0.45)
+                            if self.enabled else theme.color("text_dark"))
+            start_x += icon_side + gap
+        if label:
+            theme.draw_text(surface, theme.truncate(label, font, max(20, rect.right - start_x - 10)),
+                            font, text_color, (start_x, center_y), anchor="midleft")
+        if self.subtitle:
+            sub = fonts.sized(theme.FONT["tiny"])
             theme.draw_text(surface, theme.truncate(self.subtitle, sub, rect.width - 16), sub,
-                            theme.color("text_dim"), (rect.centerx, rect.y + rect.height // 2 + 12),
-                            anchor="center")
-        else:
-            theme.draw_text(surface, theme.truncate(label, font, rect.width - 16), font,
-                            text_color, rect.center, anchor="center")
+                            theme.color("text_dim"),
+                            (rect.centerx, rect.y + rect.height // 2 + 14), anchor="center")
 
 
 class IconButton(Button):
-    """只显示一个符号的小按钮。"""
+    """只显示一个矢量图标的方形小按钮。"""
 
     def __init__(self, rect, glyph: str, on_click=None, style: str = "secondary",
                  tooltip: str = "", font_size: int = 20) -> None:
-        super().__init__(rect, glyph, on_click, style=style, tooltip=tooltip,
-                         font_size=font_size, radius=10)
+        super().__init__(rect, "", on_click, style=style, tooltip=tooltip,
+                         font_size=font_size, radius=theme.RADIUS["sm"])
+        self.icon = glyph
 
 
 # ==================================================================== 文本输入
@@ -206,6 +228,8 @@ class TextInput(Widget):
         self.caret = len(text)
         self._blink = 0.0
         self._offset = 0
+        #: 点击聚焦后第一次输入是否整体替换（预填了上次的 IP / 昵称时很有用）
+        self._replace_on_input = False
 
     def set_text(self, text: str) -> None:
         self.text = text[: self.max_length]
@@ -219,6 +243,7 @@ class TextInput(Widget):
             if self.rect.collidepoint(event.pos):
                 self.focused = True
                 self.caret = len(self.text)
+                self._replace_on_input = bool(self.text)
                 try:
                     pygame.key.start_text_input()
                 except Exception:
@@ -226,6 +251,7 @@ class TextInput(Widget):
                 return True
             if self.focused:
                 self.focused = False
+                self._replace_on_input = False
                 try:
                     pygame.key.stop_text_input()
                 except Exception:
@@ -238,13 +264,25 @@ class TextInput(Widget):
             if self.numeric and not chunk.isdigit():
                 chunk = "".join(c for c in chunk if c.isdigit())
             if chunk:
-                head = self.text[: self.caret]
-                tail = self.text[self.caret:]
-                self.text = (head + chunk + tail)[: self.max_length]
-                self.caret = min(len(self.text), self.caret + len(chunk))
+                if self._replace_on_input:
+                    self.text = chunk[: self.max_length]
+                    self.caret = len(self.text)
+                    self._replace_on_input = False
+                else:
+                    head = self.text[: self.caret]
+                    tail = self.text[self.caret:]
+                    self.text = (head + chunk + tail)[: self.max_length]
+                    self.caret = min(len(self.text), self.caret + len(chunk))
                 self._changed()
             return True
         if event.type == pygame.KEYDOWN:
+            if self._replace_on_input and event.key in (
+                    pygame.K_BACKSPACE, pygame.K_DELETE):
+                self.text = ""
+                self.caret = 0
+                self._replace_on_input = False
+                self._changed()
+                return True
             if event.key == pygame.K_BACKSPACE:
                 if self.caret > 0:
                     self.text = self.text[: self.caret - 1] + self.text[self.caret:]
@@ -620,14 +658,25 @@ class ScrollList(Widget):
             theme.rounded_rect(surface, handle, theme.color("border"), radius=4)
 
     def _draw_item(self, surface, fonts, item, y: int) -> None:
-        """默认按 (文本, 颜色名) 元组或纯文本绘制。"""
+        """默认按 (文本, 颜色名[, 图标名]) 元组或纯文本绘制。"""
+        from . import icons
+
         text = item
         color_name = "text_dim"
+        icon_name = ""
         if isinstance(item, tuple) and len(item) >= 2:
             text, color_name = item[0], item[1]
+            if len(item) >= 3:
+                icon_name = item[2] or ""
         font = fonts.small()
-        theme.draw_text(surface, theme.truncate(str(text), font, self.rect.width - 24), font,
-                        theme.color(color_name), (self.rect.x + self.padding, y))
+        x = self.rect.x + self.padding
+        if icon_name:
+            icons.draw_icon(surface, icon_name,
+                            pygame.Rect(x, y + 2, 14, 14), theme.color(color_name),
+                            theme.color("shadow"))
+            x += 19
+        theme.draw_text(surface, theme.truncate(str(text), font, self.rect.right - x - 18),
+                        font, theme.color(color_name), (x, y))
 
 
 # ==================================================================== 其它
@@ -725,3 +774,81 @@ def draw_tooltip(surface: pygame.Surface, fonts: theme.FontManager, text: str,
     for line in lines:
         theme.draw_text(surface, line, font, theme.color("text"), (rect.x + 11, ty))
         ty += line_h
+
+
+class ScrollPanel(Widget):
+    """通用滚动容器：自己管偏移、裁剪与滚动条，内容由回调绘制。
+
+    资产列表 / 发现的房间 / 图鉴长页都用它，避免每个列表各写一套滚动逻辑。
+    """
+
+    def __init__(self, rect: pygame.Rect | Sequence[int], content_height: int = 0,
+                 padding: int = 0) -> None:
+        super().__init__(rect)
+        self.content_height = int(content_height)
+        self.padding = padding
+        self.scroll = 0.0
+        self.dragging = False
+
+    @property
+    def max_scroll(self) -> float:
+        return max(0.0, self.content_height - self.rect.height)
+
+    def set_content_height(self, height: int) -> None:
+        self.content_height = int(height)
+        self.scroll = max(0.0, min(self.max_scroll, self.scroll))
+
+    def scroll_by(self, delta: float) -> None:
+        self.scroll = max(0.0, min(self.max_scroll, self.scroll + delta))
+
+    def handle_event(self, event: pygame.event.Event) -> bool:
+        if not self.visible:
+            return False
+        if event.type == pygame.MOUSEWHEEL:
+            if self.rect.collidepoint(pygame.mouse.get_pos()):
+                self.scroll_by(-event.y * 56)
+                return True
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self._bar_rect().collidepoint(event.pos):
+                self.dragging = True
+                self._drag_to(event.pos[1])
+                return True
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1 and self.dragging:
+            self.dragging = False
+            return True
+        if event.type == pygame.MOUSEMOTION and self.dragging:
+            self._drag_to(event.pos[1])
+            return True
+        return False
+
+    def _drag_to(self, y: int) -> None:
+        ratio = (y - self.rect.y) / max(1, self.rect.height)
+        self.scroll = max(0.0, min(self.max_scroll, ratio * self.max_scroll))
+
+    def _bar_rect(self) -> pygame.Rect:
+        return pygame.Rect(self.rect.right - 9, self.rect.y, 9, self.rect.height)
+
+    def offset(self) -> int:
+        return int(self.scroll)
+
+    def clip(self, surface: pygame.Surface) -> tuple[pygame.Rect, bool]:
+        """开始裁剪，返回 (原裁剪矩形, 是否需要恢复)。请配合 restore() 使用。"""
+        old = surface.get_clip()
+        surface.set_clip(self.rect.clip(old) if old else self.rect)
+        return old, True
+
+    def restore(self, surface: pygame.Surface, old: pygame.Rect) -> None:
+        surface.set_clip(old)
+
+    def draw_bar(self, surface: pygame.Surface, content_height: int | None = None) -> None:
+        total = max(self.content_height, content_height or 0)
+        if total <= self.rect.height:
+            return
+        bar = self._bar_rect()
+        theme.rounded_rect(surface, bar, theme.color("bg_alt"), radius=4)
+        ratio = self.rect.height / max(1, total)
+        handle_h = max(30, int(bar.height * ratio))
+        pos = self.scroll / max(1.0, total - self.rect.height)
+        handle = pygame.Rect(bar.x, bar.y + int((bar.height - handle_h) * pos),
+                             bar.width, handle_h)
+        theme.rounded_rect(surface, handle, theme.color("border"), radius=4)

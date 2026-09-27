@@ -103,8 +103,11 @@ def run_one(index: int, player_count: int, map_file: str, preset: str) -> dict:
                      if e.player_id == p.id and e.amount < 0), None)
         bankruptcy_reasons[last.reason if last else "未知"] += 1
 
+    winner = st.player(st.winner_id) if st.winner_id else None
     return {
         "ok": st.game_over and st.winner_id is not None,
+        "winner_char": winner.character_id if winner else "",
+        "char_played": [p.character_id for p in st.players],
         "rounds": st.round_number,
         "turns": st.turn_number,
         "first_bankrupt": first_bankrupt_round or st.round_number,
@@ -145,26 +148,36 @@ def estimate_minutes(rounds: int, players: int) -> float:
 def main() -> int:
     ap = argparse.ArgumentParser(description="经济平衡分析")
     ap.add_argument("--games", type=int, default=20, help="每组局数")
-    ap.add_argument("--out", default="docs/reports/balance_report_v01.md")
+    ap.add_argument("--out", default="docs/reports/balance_report_v03.md")
     ap.add_argument("--quick", action="store_true", help="只跑 4 人局")
     args = ap.parse_args()
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     presets = preset_list()
     standard = next((p for p in presets if p["key"] == "standard"), presets[0])
-    groups = [(2, "default_map.json"), (3, "default_map.json"), (4, "default_map.json"),
-              (6, "default_map.json")]
+    # v0.3：除了人数，还要覆盖三个规则预设（快速 / 标准 / 休闲），
+    # 因为「某种预设打不完」是最容易漏掉的一类平衡问题。
+    groups = [(2, "default_map.json", "standard"),
+              (4, "default_map.json", "standard"),
+              (6, "default_map.json", "standard"),
+              (4, "default_map.json", "quick"),
+              (4, "default_map.json", "casual"),
+              (6, "default_map.json", "casual")]
     if not args.quick:
-        groups.append((4, "map_seaside.json"))
+        groups.append((4, "map_seaside.json", "standard"))
+        groups.append((2, "map_seaside.json", "quick"))
+
+    preset_by_key = {p["key"]: p for p in presets}
 
     print(f"平衡分析：每组 {args.games} 局")
     results: dict[str, list[dict]] = {}
-    for players, map_file in groups:
+    for players, map_file, preset_key in groups:
         board = load_board(map_file)
-        label = f"{players} 人 · {board.name}"
+        pname = preset_by_key.get(preset_key, {}).get("name", preset_key)
+        label = f"{players} 人 · {board.name} · {pname}"
         rows = []
         for i in range(args.games):
-            rows.append(run_one(i, players, map_file, standard["key"]))
+            rows.append(run_one(i, players, map_file, preset_key))
         results[label] = rows
         ok = sum(1 for r in rows if r["ok"])
         print(f"  {label}: {ok}/{len(rows)} 完成，"
@@ -172,15 +185,16 @@ def main() -> int:
 
     # ---------------- 生成报告
     lines: list[str] = []
-    lines.append("# Richman 经济平衡报告（v0.2）\n")
+    lines.append("# Richman 经济平衡报告（v0.3）\n")
     lines.append(f"- 每组样本：{args.games} 局，全部由 AI 自动对打")
-    lines.append(f"- 规则预设：{standard['name']}")
+    lines.append("- 覆盖范围：2 / 4 / 6 人 × 快速 / 标准 / 休闲三个预设 × 两张地图")
     lines.append(f"- 时间估算基准：每回合约 {SECONDS_PER_TURN:.1f} 秒"
                  "（含骰子 / 移动 / 结算动画与 AI 思考）\n")
 
     lines.append("## 总体\n")
-    lines.append("| 场景 | 完成率 | 平均轮数 | 估算时长 | 首次破产 | 平均破产人数 |")
-    lines.append("| --- | --- | --- | --- | --- | --- |")
+    lines.append("| 场景 | 完成率 | 平均轮数 | 中位轮数 | 估算时长 | 首次破产 |"
+                 " 平均破产人数 | 胜者净资产 |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
     for label, rows in results.items():
         players = int(label.split(" ")[0])
         ok = sum(1 for r in rows if r["ok"])
@@ -188,12 +202,42 @@ def main() -> int:
         minutes = estimate_minutes(rounds, players)
         first = statistics.mean([r["first_bankrupt"] for r in rows])
         bankrupt = statistics.mean([r["bankrupt"] for r in rows])
-        lines.append(f"| {label} | {ok}/{len(rows)} | {rounds:.0f} | "
-                     f"{minutes:.0f} 分钟 | 第 {first:.0f} 轮 | {bankrupt:.1f} 人 |")
+        median = statistics.median([r["rounds"] for r in rows])
+        asset = statistics.mean([r["winner_asset"] for r in rows])
+        lines.append(f"| {label} | {ok}/{len(rows)} | {rounds:.0f} | {median:.0f} | "
+                     f"{minutes:.0f} 分钟 | 第 {first:.0f} 轮 | {bankrupt:.1f} 人 | "
+                     f"{asset:,.0f} |")
+
+    lines.append("\n## 角色表现（各角色的胜场 / 参赛场次）\n")
+    lines.append("同一场景里每个角色都会被派上场，所以「某个角色明显压倒」会在这里露出来。\n")
+    lines.append("| 场景 | 角色胜率 |")
+    lines.append("| --- | --- |")
+    char_name: dict[str, str] = {}
+    try:
+        from src.game.setup import load_characters
+
+        char_name = {c["id"]: c["name_cn"] for c in load_characters()["characters"]}
+    except Exception:
+        pass
+    for label, rows in results.items():
+        played: dict[str, int] = {}
+        won: dict[str, int] = {}
+        for r in rows:
+            for cid in r.get("char_played", []):
+                played[cid] = played.get(cid, 0) + 1
+            wc = r.get("winner_char")
+            if wc:
+                won[wc] = won.get(wc, 0) + 1
+        items = []
+        for cid, n in sorted(played.items(), key=lambda kv: -won.get(kv[0], 0)):
+            if n < 6:
+                continue
+            items.append(f"{char_name.get(cid, cid)} {won.get(cid, 0)}/{n}")
+        lines.append(f"| {label} | {'、'.join(items) if items else '样本不足'} |")
 
     lines.append("\n## 目标区间\n")
     lines.append("- 典型 4 人局目标：**25～50 分钟**")
-    four = results.get("4 人 · 城市之光")
+    four = results.get("4 人 · 城市之光 · 标准局")
     if four:
         rounds = statistics.mean([r["rounds"] for r in four])
         minutes = estimate_minutes(rounds, 4)

@@ -21,6 +21,17 @@ import sys
 # 保证以「python main.py」和「python -m」两种方式都能正确导入 src
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 打包成 windowed exe 之后，stdout 的默认编码是系统 ANSI 代码页（中文 Windows 上是
+# GBK），而日志模块在初始化时会把同一个流改成 UTF-8 —— 结果是同一个进程里
+# 前后输出编码不一致，日志与自检输出会变成乱码。
+# 这里在**任何输出之前**统一成 UTF-8，保证打包产物与源码运行的输出一致。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        if _stream is not None and hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Richman 大富翁 · 城市之光")
@@ -36,6 +47,9 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--selftest", action="store_true",
                     help="启动自检：用虚拟显示跑几秒后退出（打包产物验证用）")
     ap.add_argument("--selftest-seconds", type=float, default=5.0)
+    ap.add_argument("--launch-check", action="store_true",
+                    help="真实窗口自检：开窗口走一遍主菜单/设置/对局/存档（会闪一下窗口）")
+    ap.add_argument("--launch-check-seconds", type=float, default=12.0)
     ap.add_argument("--version", action="store_true", help="显示版本并退出")
     return ap.parse_args()
 
@@ -123,6 +137,11 @@ def main() -> int:
 
     if args.selftest:
         return selftest(args.selftest_seconds)
+
+    if args.launch_check:
+        from src.selfcheck import run_launch_check
+
+        return run_launch_check(args.launch_check_seconds)
 
     from src.app import App
     from src.persistence.settings import Settings

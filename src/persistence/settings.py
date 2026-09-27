@@ -17,8 +17,13 @@ log = get_logger(__name__)
 
 USER_SETTINGS_FILE = "user_settings.json"
 
-#: 动画速度可选项
+#: 动画速度可选项（F3 循环微调用）
 ANIM_SPEED_CHOICES = [("0.5x", 0.5), ("1.0x", 1.0), ("1.5x", 1.5), ("2.0x", 2.0)]
+
+#: 游戏节奏：只影响演出时长（动画 / 棋子移动 / 事件展示 / AI 思考展示），
+#: 不改变任何规则、网络 tick 或逻辑结果。
+PACE_CHOICES = [("慢", 0.7), ("标准", 1.0), ("快", 1.6)]
+
 #: 字体大小档位
 FONT_SCALE_CHOICES = [("小", 0.9), ("默认", 1.0), ("大", 1.15)]
 
@@ -34,12 +39,17 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "bgm_volume": 0.45,
         "sfx_volume": 0.8,
         "muted": False,
+        "sfx_enabled": True,
+        "bgm_enabled": True,
     },
     "ui": {
         "animation_speed": 1.0,
         "font_scale": 1.0,
         "debug_overlay": False,
         "show_tooltips": True,
+        "detailed_log": True,
+        "show_tutorial_hint": True,
+        "tutorial_done": False,
     },
     "player": {
         "nickname": "玩家",
@@ -54,6 +64,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "last_host": "127.0.0.1",
         "last_port": 28080,
         "last_room_name": "",
+        "auto_discovery": True,
     },
 }
 
@@ -191,6 +202,14 @@ class Settings:
     def muted(self) -> bool:
         return self._as_bool("audio", "muted", False)
 
+    @property
+    def sfx_enabled(self) -> bool:
+        return self._as_bool("audio", "sfx_enabled", True)
+
+    @property
+    def bgm_enabled(self) -> bool:
+        return self._as_bool("audio", "bgm_enabled", True)
+
     # ---- UI
     @property
     def animation_speed(self) -> float:
@@ -207,6 +226,26 @@ class Settings:
     @property
     def show_tooltips(self) -> bool:
         return self._as_bool("ui", "show_tooltips", True)
+
+    @property
+    def detailed_log(self) -> bool:
+        """是否在事件日志里显示细节行（关闭后只保留关键事件，便于小屏阅读）。"""
+        return self._as_bool("ui", "detailed_log", True)
+
+    @property
+    def show_tutorial_hint(self) -> bool:
+        return self._as_bool("ui", "show_tutorial_hint", True)
+
+    def set_pace(self, speed: float) -> None:
+        """设置游戏节奏（本质就是动画速度，语义化入口）。"""
+        self.set("ui", "animation_speed", float(speed))
+
+    def pace_label(self) -> str:
+        speed = self.animation_speed
+        for label, value in PACE_CHOICES:
+            if abs(value - speed) < 0.02:
+                return label
+        return f"{speed:g}x"
 
     # ---- 玩家
     @property
@@ -241,6 +280,10 @@ class Settings:
     @property
     def last_room_name(self) -> str:
         return str(self.get("network", "last_room_name", ""))
+
+    @property
+    def auto_discovery(self) -> bool:
+        return self._as_bool("network", "auto_discovery", True)
 
     def remember_server(self, host: str, port: int) -> None:
         self.set("network", "last_host", host)

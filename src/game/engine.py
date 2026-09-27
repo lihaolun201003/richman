@@ -296,8 +296,16 @@ class GameEngine:
             return self._use_card_command(player, cmd, context=decision.context)
 
         match = None
+        # 命令别名：同一件事在不同流程里的命令名不同，语义匹配要认出来。
+        # 典型例子：出售资产在债务流程里的选项命令是 SELL_ASSET，
+        # 而资产面板发的是 SELL_PROPERTY —— 不认别名就会「操作被拒绝但界面没反应」。
+        aliases = {
+            CommandType.SELL_PROPERTY: CommandType.SELL_ASSET,
+            CommandType.SELL_ASSET: CommandType.SELL_PROPERTY,
+        }
+        wanted = aliases.get(cmd.type, cmd.type)
         for opt in decision.options:
-            if opt.command_type == cmd.type:
+            if opt.command_type in (cmd.type, wanted):
                 if opt.payload and cmd.payload:
                     merged = dict(opt.payload)
                     merged.update(cmd.payload)

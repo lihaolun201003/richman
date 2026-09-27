@@ -231,6 +231,16 @@ class PieceMoveAnimation(Animation):
         self.tile_centers = tile_centers
         self.per_tile = per_tile
 
+    def current_index(self) -> int | None:
+        """当前正在走向（或已到达）的格子索引 —— 用于「经过每一格」的反馈。"""
+        if not self.path:
+            return None
+        p = self.progress * len(self.path)
+        return self.path[min(len(self.path) - 1, int(p))]
+
+    def tile_count(self) -> int:
+        return len(self.path)
+
     def current_center(self, start_center: tuple[int, int]) -> tuple[float, float]:
         """返回当前应绘制的坐标（线性插值 + 轻微弹跳）。"""
         if not self.path:
@@ -246,8 +256,8 @@ class PieceMoveAnimation(Animation):
         b = self.tile_centers.get(self.path[idx], start_center)
         x = a[0] + (b[0] - a[0]) * eased
         y = a[1] + (b[1] - a[1]) * eased
-        # 每格中间微抬，像跳格子
-        hop = math.sin(local * math.pi) * 6
+        # 每格中间微抬，像跳格子；经过格子的最后 25% 会「落定」一下
+        hop = math.sin(local * math.pi) * (7 if local < 0.8 else 4)
         return (x, y - hop)
 
     def draw(self, surface: pygame.Surface, fonts: theme.FontManager) -> None:

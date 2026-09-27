@@ -4,6 +4,12 @@
 - 房主模式：可添加/移除 AI、踢人、开始游戏；
 - 客户端模式：可改角色、准备/取消准备、离开。
 
+v0.3 的变化：
+- 房间信息升级为「大字 IP + 一键复制」，房主不用手抄；
+- 踢人从前是「点卡片就踢」（危险且容易误触），现在需要点明确的按钮；
+- 角色选择复用统一的角色网格与能力卡；
+- 客户端会明确看到「等待房主开始」的状态与自己的准备进度。
+
 大厅只读网络与引擎状态，任何修改都通过 Host 的消息接口发出。
 """
 from __future__ import annotations
@@ -12,17 +18,17 @@ from typing import Any
 
 import pygame
 
-from ..game.setup import character_by_id, load_characters, palette
+from ..game.setup import character_by_id, palette
 from ..network.transport import local_ip_addresses
-from . import theme
-from .dialogs import MessageDialog
+from ..utils.clipboard import copy_text
+from . import icons, theme
+from .character_cards import CharacterGallery, draw_avatar, draw_character_card
 from .player_panel import _color_of
 from .scene import Scene
-from .setup_scenes import CharacterPicker
-from .widgets import Button, Label, Panel
+from .setup_scenes import MapPresetSelector
+from .widgets import Button, draw_tooltip
 
-
-from .setup_scenes import MapPresetSelector  # noqa: E402
+PAGE_X = 100
 
 
 class LobbyScene(Scene):
@@ -33,32 +39,41 @@ class LobbyScene(Scene):
         self.mode = "local"          # local / host / client
         self.character_id = app.settings.character_id
         self.color_id = app.settings.color_id
-        self.picker: CharacterPicker | None = None
         self.hover_player: str | None = None
+        self.status = ""
+        self.gallery = CharacterGallery(pygame.Rect(PAGE_X, 470, 660, 168),
+                                        self.character_id, self._set_character,
+                                        columns=4, card_h=76)
+        self.selector = MapPresetSelector(pygame.Rect(800, 500, 700, 84), None)
         self._build()
 
     def _build(self) -> None:
         self.widgets = [
-            Button(pygame.Rect(120, 800, 220, 54), "离开房间",
-                   on_click=self._leave, style="ghost"),
-            Button(pygame.Rect(1220, 800, 260, 54), "开始游戏",
-                   on_click=self._start, style="accent", icon="▶"),
+            Button(pygame.Rect(PAGE_X, 820, 220, 54), "离开房间",
+                   on_click=self._leave, style="ghost", icon="exit"),
+            Button(pygame.Rect(1240, 820, 260, 54), "开始游戏",
+                   on_click=self._start, style="accent", icon="play"),
         ]
+        self.add_ai_button = Button(
+            pygame.Rect(800, 432, 340, 50), "电脑玩家", on_click=self._add_ai,
+            style="secondary", font_size=16, icon="plus")
+        self.ready_button = Button(
+            pygame.Rect(800, 432, 340, 50), "我准备好了（R）", on_click=self._toggle_ready,
+            style="primary", font_size=16, icon="check")
+        self.copy_button = Button(
+            pygame.Rect(1152, 432, 348, 50), "复制连接信息", on_click=self._copy_ip,
+            style="ghost", font_size=16, icon="copy")
+        self.kick_button = Button(
+            pygame.Rect(800, 600, 700, 46), "把选中的玩家移出房间",
+            on_click=self._kick_selected, style="danger", font_size=16, icon="cross")
+        self.widgets += [self.add_ai_button, self.ready_button, self.copy_button]
 
     # ------------------------------------------------------------ 生命周期
 
     def on_enter(self, **kwargs: Any) -> None:
-        if not hasattr(self, 'selector'):
-            self.selector = MapPresetSelector(
-                pygame.Rect(1020, 452, 460, 76), None)
         self.character_id = self.app.settings.character_id
         self.color_id = self.app.settings.color_id
-        if self.picker is None:
-            self.picker = CharacterPicker(pygame.Rect(120, 620, 900, 116),
-                                          self.character_id, self._set_character)
-
-    def on_exit(self) -> None:
-        pass
+        self.gallery.selected = self.character_id
 
     # ------------------------------------------------------------ 数据
 
@@ -136,6 +151,7 @@ class LobbyScene(Scene):
         me = next((p for p in self._players() if p["player_id"] == client.player_id), None)
         ready = not (me or {}).get("ready", False)
         client.send_ready(ready)
+        self.notify("已准备，等待房主开始" if ready else "已取消准备", "info")
 
     def _add_ai(self) -> None:
         host = self._host()
@@ -143,32 +159,46 @@ class LobbyScene(Scene):
             return
         ok, err = host.lobby.add_ai()
         if err:
-            self.notify(
-                {"room_full": "房间已满", "game_started": "游戏已经开始了"}.get(err, err),
-                "warning")
+            self.notify({"room_full": "房间已满", "game_started": "游戏已经开始了"}.get(err, err),
+                        "warning")
         host.broadcast_lobby()
 
-    def _remove_ai(self, player_id: str) -> None:
+    def _copy_ip(self) -> None:
         host = self._host()
         if host is None:
+            self.notify("只有房主需要分享连接信息", "info")
             return
-        session = host.lobby.session(player_id)
-        if session is not None and session.is_ai:
-            host.lobby.remove(player_id)
-            host.broadcast_lobby()
+        ips = host.ip_addresses()
+        text = f"{ips[0]}:{host.port}" if ips else str(host.port)
+        if copy_text(text):
+            self.notify(f"已复制「{text}」，发给朋友即可", "success")
+        else:
+            self.notify(f"复制失败，请手动记下：{text}", "warning")
 
-    def _kick(self, player_id: str) -> None:
+    def _kick_selected(self) -> None:
         host = self._host()
-        if host is None:
+        if host is None or self.hover_player is None:
+            self.notify("先点一个玩家卡片，再点这个按钮", "info")
             return
-        session = host.lobby.session(player_id)
+        session = host.lobby.session(self.hover_player)
         if session is None or session.is_host or session.is_ai:
+            self.notify("房主与电脑玩家不能在这里移除", "warning")
             return
         if session.conn is not None:
             session.conn.send_message("KICK", {"reason": "你被房主移出房间"})
             session.conn.close("kicked")
-        host.lobby.remove(player_id)
+        host.lobby.remove(self.hover_player)
         host.broadcast_lobby()
+        self.notify(f"{session.name} 已被移出房间", "warning")
+
+    def _remove_selected_ai(self) -> None:
+        host = self._host()
+        if host is None or self.hover_player is None:
+            return
+        session = host.lobby.session(self.hover_player)
+        if session is not None and session.is_ai:
+            host.lobby.remove(self.hover_player)
+            host.broadcast_lobby()
 
     # ------------------------------------------------------------ 输入
 
@@ -183,44 +213,31 @@ class LobbyScene(Scene):
             if event.key == pygame.K_r and not self._is_room_host():
                 self._toggle_ready()
                 return
-        if event.type == pygame.MOUSEMOTION:
-            self.hover_player = self._hit_card(event.pos)
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             pid = self._hit_card(event.pos)
             if pid is not None:
-                self._on_card_clicked(pid)
-                return
-            for rect, action in self._button_rects():
-                if rect.collidepoint(event.pos):
-                    action()
+                session = None
+                host = self._host()
+                if host is not None:
+                    session = host.lobby.session(pid)
+                if session is not None and session.is_ai and self._is_room_host():
+                    self._remove_selected_ai()
                     return
-        if self.picker is not None and self.picker.handle_event(event):
+                self.hover_player = pid
+                return
+        if self.gallery.handle_event(event):
             return
-        if hasattr(self, 'selector') and self.selector.handle_event(event):
+        if self.selector.handle_event(event):
             return
         super().handle_event(event)
-
-    def _on_card_clicked(self, player_id: str) -> None:
-        if not self._is_room_host():
-            return
-        host = self._host()
-        if host is None:
-            return
-        session = host.lobby.session(player_id)
-        if session is None or session.is_host:
-            return
-        if session.is_ai:
-            self._remove_ai(player_id)
-        else:
-            self._kick(player_id)
 
     def _card_rects(self) -> list[tuple[pygame.Rect, dict[str, Any]]]:
         players = self._players()
         out = []
-        cols = 3
+        cols = 2
         for i, p in enumerate(players):
             col, row = i % cols, i // cols
-            rect = pygame.Rect(120 + col * 300, 190 + row * 130, 280, 118)
+            rect = pygame.Rect(PAGE_X + col * 336, 176 + row * 84, 320, 80)
             out.append((rect, p))
         return out
 
@@ -230,18 +247,8 @@ class LobbyScene(Scene):
                 return p["player_id"]
         return None
 
-    def _button_rects(self):
-        out = []
-        rect = pygame.Rect(1020, 190, 460, 54)
-        out.append((rect, self._add_ai if self._is_room_host()
-                    else self._toggle_ready))
-        return out
-
     def _sync_selector(self, data: dict) -> None:
         """把选择器与房间状态对齐；客户端只读。"""
-        if not hasattr(self, 'selector'):
-            self.selector = MapPresetSelector(
-                pygame.Rect(1020, 452, 460, 76), None)
         sel = self.selector
         host = self._is_room_host()
         sel.editable = host
@@ -268,48 +275,57 @@ class LobbyScene(Scene):
             "host": "局域网房主",
             "client": "局域网客户端",
         }.get(self.mode, "")
-        theme.draw_text(surface, room_name, self.fonts.h1(), theme.color("text"), (120, 90))
-        theme.draw_text(surface, mode_label, self.fonts.small(), theme.color("text_dim"),
-                        (124, 128))
-        pygame.draw.line(surface, theme.color("border_soft"), (120, 152), (1480, 152), 1)
+        theme.draw_text(surface, theme.truncate(room_name, self.fonts.h1(), 700),
+                        self.fonts.h1(), theme.color("text"), (PAGE_X, 56))
+        theme.chip(surface, self.fonts, pygame.Rect(PAGE_X, 104, 150, 24), mode_label,
+                   "accent" if self.mode != "client" else "info", font_key="tiny", radius=6)
 
         self._sync_selector(data)
         self._draw_room_info(surface, data)
         self._draw_seats(surface)
-        if self.picker is not None:
-            self.picker.draw(surface, self.fonts)
+
         theme.draw_text(surface, "选择你的角色", self.fonts.small(), theme.color("text_dim"),
-                        (120, 596))
+                        (PAGE_X, 444))
+        tips: list[str] = []
+        self.gallery.draw(surface, self.fonts, tips)
+        draw_character_card(surface, self.fonts, pygame.Rect(PAGE_X, 652, 660, 150),
+                            self.character_id, show_ai=False)
 
-        if hasattr(self, 'selector'):
-            self.selector.draw(surface, self.fonts)
-        self.widgets[0].label = "离开房间"
-        self._update_start_button()
+        self.selector.draw(surface, self.fonts)
+        self._update_buttons(data)
         self.draw_widgets(surface)
-        self._draw_extra_buttons(surface)
         self._draw_hint(surface, data)
+        mouse = pygame.mouse.get_pos()
+        if tips and self.app.settings.show_tooltips:
+            draw_tooltip(surface, self.fonts, tips[-1], mouse, bounds=(1600, 900))
 
-    def _update_start_button(self) -> None:
+    def _update_buttons(self, data: dict) -> None:
+        is_host = self._is_room_host()
+        self.add_ai_button.visible = is_host
+        self.copy_button.visible = bool(self._host())
+        self.ready_button.visible = not is_host
+        if not is_host:
+            client = self._client()
+            me = next((p for p in self._players()
+                       if client and p["player_id"] == client.player_id), None)
+            ready = bool((me or {}).get("ready"))
+            self.ready_button.label = "取消准备（R）" if ready else "我准备好了（R）"
+            self.ready_button.style = "success" if ready else "primary"
         button = self.widgets[1]
-        if self._is_room_host():
+        if is_host:
             button.visible = True
-            data = self._lobby_data()
             can = bool(data.get("can_start"))
             button.set_enabled(can, data.get("start_reason", ""))
-            if not can:
-                button.label = "等待准备…"
-            else:
-                button.label = "开始游戏"
+            button.label = "开始游戏" if can else "等待准备…"
         else:
             button.visible = False
 
     def _draw_room_info(self, surface: pygame.Surface, data: dict[str, Any]) -> None:
-        rect = pygame.Rect(1020, 240, 460, 190)
-        theme.rounded_rect(surface, rect, theme.color("panel"), radius=14)
-        theme.rounded_rect(surface, rect, None, radius=14,
-                           border=theme.color("border_soft"), border_width=1)
-        theme.draw_text(surface, "房间信息", self.fonts.h3(), theme.color("text"),
-                        (rect.x + 16, rect.y + 12))
+        rect = pygame.Rect(800, 176, 700, 246)
+        theme.panel(surface, rect, fill="panel", radius=theme.RADIUS["xl"])
+        theme.section_header(surface, self.fonts,
+                             pygame.Rect(rect.x + 16, rect.y + 12, rect.width - 32, 22),
+                             "房间信息", icon="info")
 
         rows: list[tuple[str, str]] = []
         if self._is_host_mode():
@@ -321,111 +337,93 @@ class LobbyScene(Scene):
                     rows.append(("其它 IP", " / ".join(ips[1:3])))
                 rows.append(("端口", str(host.port)))
                 rows.append(("地图", host.lobby.map_name))
+                rows.append(("规则", host.lobby.preset_label()))
         else:
             client = self._client()
             if client is not None:
                 rows.append(("房主", client.host_address))
                 rows.append(("状态", client.describe()))
                 rows.append(("地图", data.get("map_name", "")))
-
+                rows.append(("规则", data.get("preset_name", "")))
         rows.append(("人数", f"{len(data.get('players') or [])} / {data.get('max_players', 6)}"))
 
-        y = rect.y + 48
+        y = rect.y + 52
         for label, value in rows:
-            theme.draw_text(surface, label, self.fonts.small(), theme.color("text_dim"),
-                            (rect.x + 16, y))
-            theme.draw_text(surface, theme.truncate(value, self.fonts.small(), rect.width - 130),
-                            self.fonts.small(), theme.color("text"),
-                            (rect.right - 16, y), anchor="topright")
-            y += 26
+            theme.kv_row(surface, self.fonts, pygame.Rect(rect.x + 16, y, rect.width - 32, 20),
+                         y, label, value, value_color="accent" if label == "本机 IP" else "text",
+                         row_h=28)
+            y += 28
+
+        if self._is_host_mode() and self._host() is not None:
+            theme.draw_text(surface, "把「IP:端口」发给朋友，他们在「加入房间」里填进去",
+                            self.fonts.micro(), theme.color("accent"),
+                            (rect.x + 16, rect.bottom - 30))
 
     def _draw_seats(self, surface: pygame.Surface) -> None:
         players = self._players()
         my_id = self._my_id()
         is_host = self._is_room_host()
+        mouse = pygame.mouse.get_pos()
         for rect, p in self._card_rects():
+            char = character_by_id(p.get("character_id", "")) or {}
             col = theme.hex_to_rgb(_color_of(p.get("color_id", "")))
             is_me = p["player_id"] == my_id
-            hovered = p["player_id"] == self.hover_player and is_host and not is_me
-            fill = theme.color("panel_alt") if hovered else theme.color("panel")
-            theme.rounded_rect(surface, rect, fill, radius=12)
-            theme.rounded_rect(surface, rect, None, radius=12,
-                               border=theme.color("danger" if hovered else "border_soft"),
-                               border_width=2 if hovered else 1)
+            is_ai = bool(p.get("is_ai"))
+            selected = p["player_id"] == self.hover_player
+            fill = "panel_alt" if selected else "panel"
+            theme.panel(surface, rect, fill=fill,
+                        border="accent" if selected else "border_soft",
+                        radius=theme.RADIUS["lg"])
 
-            char = character_by_id(p.get("character_id", "")) or {}
-            pygame.draw.circle(surface, col, (rect.x + 38, rect.y + 40), 24)
-            theme.draw_text(surface, (char.get("name_cn") or p.get("name", "?"))[0],
-                            self.fonts.sized(22, True), (255, 255, 255),
-                            (rect.x + 38, rect.y + 40), anchor="center")
+            avatar = pygame.Rect(rect.x + 16, rect.centery - 22, 44, 44)
+            draw_avatar(surface, avatar, char, self.fonts)
+            pygame.draw.circle(surface, col, (rect.x + 20, rect.y + 16), 6)
+            pygame.draw.circle(surface, theme.darken(col, 0.4), (rect.x + 20, rect.y + 16), 6, 1)
 
-            tag = "房主" if p.get("is_host") else ("AI" if p.get("is_ai") else "玩家")
-            name = p.get("name", "?")
-            theme.draw_text(surface, theme.truncate(name, self.fonts.h3(), 150),
-                            self.fonts.h3(), theme.color("text"), (rect.x + 76, rect.y + 16))
-            theme.draw_text(surface, f"{tag} · {char.get('name_cn', '')}",
-                            self.fonts.small(), theme.color("text_dim"),
-                            (rect.x + 76, rect.y + 44))
+            tag = "房主" if p.get("is_host") else ("电脑" if is_ai else "玩家")
+            theme.draw_text(surface, theme.truncate(p.get("name", "?"), self.fonts.h3(), 160),
+                            self.fonts.h3(), theme.color("text"),
+                            (avatar.right + 12, rect.y + 14))
+            theme.draw_text(surface, f"{tag} · {char.get('name_cn', '')}", self.fonts.small(),
+                            theme.color("text_dim"), (avatar.right + 12, rect.y + 42))
             if char.get("perk"):
-                theme.draw_text(surface, char["perk"]["desc"], self.fonts.micro(),
-                                theme.color("text_mute"), (rect.x + 76, rect.y + 66))
+                theme.draw_text(surface, theme.truncate(char["perk"]["desc"], self.fonts.micro(),
+                                                        rect.width - 90),
+                                self.fonts.micro(), theme.color("text_mute"),
+                                (avatar.right + 12, rect.y + 60))
 
-            # 准备状态
             ready = p.get("ready")
-            badge = pygame.Rect(rect.right - 92, rect.bottom - 32, 78, 22)
-            if p.get("is_ai"):
+            if is_ai:
                 label, color_name = "电脑", "text_mute"
             elif ready:
                 label, color_name = "已准备", "success"
             else:
                 label, color_name = "未准备", "warning"
-            theme.rounded_rect(surface, badge, theme.color(color_name, 40), radius=6)
-            theme.rounded_rect(surface, badge, None, radius=6,
-                               border=theme.color(color_name), border_width=1)
-            theme.draw_text(surface, label, self.fonts.micro(), theme.color(color_name),
-                            badge.center, anchor="center")
-
+            theme.chip(surface, self.fonts,
+                       pygame.Rect(rect.right - 76, rect.bottom - 28, 64, 20),
+                       label, color_name, font_key="micro")
             if p.get("disconnected"):
-                theme.draw_text(surface, "已掉线", self.fonts.tiny(), theme.color("warning"),
-                                (rect.x + 76, rect.y + 88))
+                theme.chip(surface, self.fonts,
+                           pygame.Rect(rect.right - 76, rect.bottom - 50, 64, 20),
+                           "已掉线", "danger", font_key="micro")
             if is_me:
                 theme.draw_text(surface, "（你）", self.fonts.tiny(), theme.color("primary"),
-                                (rect.right - 18, rect.y + 14), anchor="topright")
-            if hovered:
-                theme.draw_text(surface, "点击移出", self.fonts.micro(), theme.color("danger"),
-                                (rect.x + 10, rect.bottom - 20))
-
-    def _draw_extra_buttons(self, surface: pygame.Surface) -> None:
-        if self._is_room_host():
-            rect = pygame.Rect(1020, 190, 460, 54)
-            hovered = rect.collidepoint(pygame.mouse.get_pos())
-            theme.rounded_rect(surface, rect,
-                               theme.color("panel_hi") if hovered else theme.color("panel_alt"),
-                               radius=12)
-            theme.rounded_rect(surface, rect, None, radius=12, border=theme.color("border"),
-                               border_width=1)
-            theme.draw_text(surface, "+ 添加电脑玩家", self.fonts.body(),
-                            theme.color("text"), rect.center, anchor="center")
-        else:
-            rect = pygame.Rect(1020, 190, 460, 54)
-            players = self._players()
-            client = self._client()
-            me = next((p for p in players if client and p["player_id"] == client.player_id), None)
-            ready = bool((me or {}).get("ready"))
-            style_color = "success" if ready else "primary"
-            theme.rounded_rect(surface, rect, theme.color(style_color), radius=12)
-            theme.draw_text(surface,
-                            "取消准备（R）" if ready else "我准备好了（R）",
-                            self.fonts.body(), theme.color("text"), rect.center,
-                            anchor="center")
+                                (rect.right - 16, rect.y + 12), anchor="topright")
+            if selected and is_host and not is_ai:
+                theme.draw_text(surface, "已选中", self.fonts.micro(), theme.color("accent"),
+                                (rect.x + 16, rect.bottom - 22))
 
     def _draw_hint(self, surface: pygame.Surface, data: dict[str, Any]) -> None:
-        text = ""
         if self._is_room_host():
             reason = data.get("start_reason", "")
-            text = "按 Enter 或点击右下角开始游戏" if data.get("can_start") else \
-                f"还不能开始：{reason}"
+            text = ("按 Enter 或点右下角「开始游戏」" if data.get("can_start")
+                    else f"还不能开始：{reason}")
         else:
-            text = "等待房主开始游戏 · 可按 R 切换准备状态"
+            players = self._players()
+            client = self._client()
+            me = next((p for p in players if client and p["player_id"] == client.player_id),
+                      None)
+            text = ("已准备，等待房主开始游戏…" if (me or {}).get("ready")
+                    else "选好角色后按 R 准备，房主才能开始")
         theme.draw_text(surface, text, self.fonts.small(), theme.color("text_dim"),
-                        (800, 862), anchor="center")
+                        (800, 892), anchor="center")
